@@ -671,7 +671,7 @@ bool ArduinoGPTChat::textToSpeech(String text) {
   String host_original = g_api_host;
   g_api_host = "api.openai.com";
 
-  String openAiKey = "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"; 
+  String openAiKey = _apiKey; 
 
     // 4. Faz a requisição de voz usando a chave da OpenAI e o modelo TTS deles
     bool success = audio.openai_speech(
@@ -1174,64 +1174,103 @@ String ArduinoGPTChat::speechToTextFromBuffer(uint8_t* audioBuffer, size_t buffe
   size_t totalLength = part1.length() + bufferSize + part2.length() + part3.length() +
                       part4.length() + part5.length() + part6.length() + part7.length();
 
-  // Configuração dos Cabeçalhos
-  http.addHeader("Content-Type", "multipart/form-data; boundary=" + boundary);
-  http.addHeader("Authorization", "Bearer " + String(_apiKey));
-  http.addHeader("Content-Length", String(totalLength));
+  Serial.println("Sending STT request via streaming to save RAM...");
 
-  Serial.println("Preparing request body...");
-  uint8_t* requestBody = (uint8_t*)malloc(totalLength);
-  if (!requestBody) {
-    Serial.println("Failed to allocate memory for request body!");
-    return response;
+  WiFiClientSecure client;
+  client.setInsecure();
+  client.setTimeout(20000);
+  
+  if (!client.connect("api.openai.com", 443)) {
+    Serial.println("Connection failed!");
+    return "";
   }
 
-  size_t pos = 0;
-  memcpy(requestBody + pos, part1.c_str(), part1.length());
-  pos += part1.length();
-  memcpy(requestBody + pos, audioBuffer, bufferSize);
-  pos += bufferSize;
-  memcpy(requestBody + pos, part2.c_str(), part2.length());
-  pos += part2.length();
-  memcpy(requestBody + pos, part3.c_str(), part3.length());
-  pos += part3.length();
-  memcpy(requestBody + pos, part4.c_str(), part4.length());
-  pos += part4.length();
-  memcpy(requestBody + pos, part5.c_str(), part5.length());
-  pos += part5.length();
-  memcpy(requestBody + pos, part6.c_str(), part6.length());
-  pos += part6.length();
-  memcpy(requestBody + pos, part7.c_str(), part7.length());
-  pos += part7.length();
+  // Envia cabecalhos HTTP
+  client.print("POST /v1/audio/transcriptions HTTP/1.1\r\n");
+  client.print("Host: api.openai.com\r\n");
+  client.print("Authorization: Bearer " + String(_apiKey) + "\r\n");
+  client.print("Content-Type: multipart/form-data; boundary=" + boundary + "\r\n");
+  client.print("Content-Length: " + String(totalLength) + "\r\n");
+  client.print("Connection: close\r\n\r\n");
 
-  Serial.println("Sending STT request...");
-  int httpCode = http.POST(requestBody, totalLength);
-
-  free(requestBody);
+  // Envia os chunks direto pra placa de rede (Zero Malloc)
+  client.print(part1);
   
+  const size_t chunkSize = 2048;
+  for (size_t i = 0; i < bufferSize; i += chunkSize) {
+    size_t chunk = min(chunkSize, bufferSize - i);
+    client.write(audioBuffer + i, chunk);
+  }
+
+  client.print(part2);
+  client.print(part3);
+  client.print(part4);
+  client.print(part5);
+  client.print(part6);
+  client.print(part7);
+
+  // Aguarda resposta
+  unsigned long timeout = millis();
+  while (client.connected() && !client.available()) {
+    if (millis() - timeout > 20000) {
+      Serial.println("Timeout waiting for response");
+      client.stop();
+      return "";
+    }
+    delay(10);
+  }
+
+  String respRaw = "";
+  bool headerPassed = false;
+  int httpCode = 0;
+  
+  while (client.available() || client.connected()) {
+    String line = client.readStringUntil('\n');
+    if (!headerPassed) {
+      if (line.startsWith("HTTP/1.1 ")) {
+        httpCode = line.substring(9, 12).toInt();
+      }
+      if (line == "\r" || line == "") {
+        headerPassed = true;
+      }
+    } else {
+      respRaw += line + "\n";
+    }
+  }
+  client.stop();
+
   Serial.print("HTTP Response Code: ");
   Serial.println(httpCode);
   
   if (httpCode == 200) {
-    response = http.getString();
+    // Extrai apenas o JSON para ignorar headers de chunked transfer
+    int jsonStart = respRaw.indexOf('{');
+    int jsonEnd = respRaw.lastIndexOf('}');
+    if (jsonStart >= 0 && jsonEnd > jsonStart) {
+      response = respRaw.substring(jsonStart, jsonEnd + 1);
+    } else {
+      response = respRaw;
+    }
+
     DynamicJsonDocument jsonDoc(1024);
     DeserializationError error = deserializeJson(jsonDoc, response);
 
     if (!error) {
       response = jsonDoc["text"].as<String>();
     } else {
+      Serial.print("JSON Parse Error: ");
+      Serial.println(error.c_str());
       response = "";
     }
   } else {
     Serial.print("HTTP Error: ");
     Serial.println(httpCode);
+    Serial.println(respRaw);
     
     Serial.print("Memória RAM livre no momento do erro: ");
     Serial.print(ESP.getFreeHeap());
     Serial.println(" bytes");
     response = "";
   }
-  
-  http.end();
   return response;
 }

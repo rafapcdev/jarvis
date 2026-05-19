@@ -48,11 +48,13 @@ String enviarParaGemini(String pergunta) {
   http.begin(client, url);
   http.addHeader("Content-Type", "application/json");
 
-  // O nosso prompt de regras do Ar Condicionado injetado de forma nativa e rápida
-  String payload = "{\"system_instruction\":{\"parts\":{\"text\":\"Seja direto. Responda em ate 10 palavras. Se o usuario pedir para ligar o ar, inclua a tag [AR_ON]. Se pedir para desligar, use [AR_OFF]. Se pedir para subir a temperatura, use [AR_TEMP_UP]. Se pedir para descer, use [AR_TEMP_DOWN].\"}},";
-  payload += "\"contents\":[{\"parts\":[{\"text\":\"" + pergunta + "\"}]}]}";
+  // O nosso prompt injetado de forma nativa e rápida usando char array para não fragmentar a RAM
+  char payload[512];
+  snprintf(payload, sizeof(payload), 
+    "{\"system_instruction\":{\"parts\":{\"text\":\"Seja direto. Responda em ate 20 palavras. Se o usuario pedir para ligar o ar, inclua a tag [AR_ON]. Se pedir para desligar, use [AR_OFF]. Se pedir para subir a temperatura, use [AR_TEMP_UP]. Se pedir para descer, use [AR_TEMP_DOWN].\"}},\"contents\":[{\"parts\":[{\"text\":\"%s\"}]}]}", 
+    pergunta.c_str());
 
-  int httpCode = http.sendRequest("POST", payload);
+  int httpCode = http.sendRequest("POST", (uint8_t*)payload, strlen(payload));
   String resposta = "";
 
   if (httpCode == HTTP_CODE_OK) {
@@ -78,7 +80,7 @@ void aoReceberDados(const esp_now_recv_info_t *info, const uint8_t *dados, int t
   memcpy(bufferTexto, dados, tamanho);
   bufferTexto[tamanho] = '\0';
   String msg = String(bufferTexto);
-  
+
   // Intercepta comandos de som
   if (msg == "[BEEP_START]") {
     tone(PINO_BUZZER, 2000, 100); // Bipe agudo e rápido (100ms) ao começar a gravar
@@ -173,8 +175,8 @@ void loop() {
       if (respostaIA.length() > 0) {
         Serial.println("> Gemini Respondeu: " + respostaIA);
         
-        // Desativa a conexão segura estrita temporariamente para o áudio fluir rápido
-        audio.openai_speech(String(openAiKey), "tts-1", respostaIA, "alloy", "mp3", "1.0");
+        // Usa a API gratuita do Google Tradutor (Custo zero, voz robotizada)
+        audio.connecttospeech(respostaIA.c_str(), "pt");
       }
     }
   }

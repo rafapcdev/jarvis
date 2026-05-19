@@ -8,7 +8,8 @@
 #define I2S_MIC_LEFT_RIGHT_CLOCK 25 
 #define I2S_MIC_SERIAL_DATA 33     
 
-#define BOOT_BUTTON_PIN 0
+// Pino do Botão Externo (Ligue o botão entre o Pino 14 e o GND)
+#define PINO_BOTAO 14
 #define SAMPLE_RATE 8000
 
 // ----- CONFIGURAÇÕES DA REDE E API -----
@@ -31,7 +32,7 @@ unsigned long ultimoCheckWiFi = 0;
 
 void setup() {
   Serial.begin(115200);
-  pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP);
+  pinMode(PINO_BOTAO, INPUT_PULLUP);
 
   Serial.println("\n[ESP1] Iniciando Ouvido...");
   WiFi.mode(WIFI_STA);
@@ -56,7 +57,7 @@ void setup() {
   gptChat.initializeRecording(I2S_MIC_SERIAL_CLOCK, I2S_MIC_LEFT_RIGHT_CLOCK, I2S_MIC_SERIAL_DATA,
                              SAMPLE_RATE, I2S_MODE_STD, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO, I2S_STD_SLOT_LEFT);
                              
-  Serial.println("[ESP1] Pronto! Segure o botao BOOT para falar.");
+  Serial.println("[ESP1] Pronto! Segure o botao externo (Pino 14) para falar.");
 }
 
 void loop() {
@@ -70,19 +71,19 @@ void loop() {
     }
   }
 
-  buttonPressed = (digitalRead(BOOT_BUTTON_PIN) == LOW);
+  buttonPressed = (digitalRead(PINO_BOTAO) == LOW);
 
   if (buttonPressed && !wasButtonPressed && !gptChat.isRecording()) {
     Serial.println("\n[ GRAVANDO ] Fale agora...");
     String cmd = "[BEEP_START]";
-    esp_now_send(enderecoESP2, (uint8_t *)cmd.c_str(), cmd.length() + 1); // Avisa o ESP2 para bipar
+    esp_now_send(enderecoESP2, (uint8_t *)cmd.c_str(), cmd.length() + 1); // Pede para falar "Sim?"
     gptChat.startRecording();
     wasButtonPressed = true;
   }
   else if (!buttonPressed && wasButtonPressed && gptChat.isRecording()) {
     Serial.println("[ ENVIANDO PARA A OPENAI ]...");
     String cmd = "[BEEP_STOP]";
-    esp_now_send(enderecoESP2, (uint8_t *)cmd.c_str(), cmd.length() + 1); // Avisa o ESP2 para bipar (processando)
+    esp_now_send(enderecoESP2, (uint8_t *)cmd.c_str(), cmd.length() + 1); // Pede para falar "Aguarde"
     
     // A biblioteca processa o áudio usando a sua função corrigida
     String textoTranscrito = gptChat.stopRecordingAndProcess();
