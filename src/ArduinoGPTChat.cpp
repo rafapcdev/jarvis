@@ -1,5 +1,6 @@
 #include "ArduinoGPTChat.h"
 #include <SPIFFS.h>
+#include <WiFiClientSecure.h>
 
 // Default API configuration - users can modify these values or set their own configuration via setApiConfig()
 const char* DEFAULT_API_KEY = "";
@@ -204,7 +205,7 @@ String ArduinoGPTChat::sendImageMessage(const char* imageFilePath, String questi
   
   // Now build JSON using smaller buffer
   DynamicJsonDocument doc(2048); // Only need small buffer since Base64 data not included
-  doc["model"] = "gpt-4.1-nano";
+  doc["model"] = "gemini1.5-flash";
   doc["messages"] = JsonArray();
   JsonObject message = doc["messages"].createNestedObject();
   message["role"] = "user";
@@ -580,16 +581,11 @@ String ArduinoGPTChat::sendMessage(String message) {
       while (_conversationHistory.size() > _maxHistoryPairs) {
         _conversationHistory.erase(_conversationHistory.begin());
       }
-
-      Serial.printf("Memory: %d/%d conversation pairs stored\n",
-                    _conversationHistory.size(), _maxHistoryPairs);
     }
-
     return assistantResponse;
   }
   return "";
 }
-
 /**
  * @brief Build JSON payload for HTTP request
  * @param message Current user message
@@ -671,15 +667,26 @@ bool ArduinoGPTChat::textToSpeech(String text) {
   // Create temporary Audio object
   extern Audio audio;
 
-  // Use Audio library's openai_speech function
-  return audio.openai_speech(
-    String(_apiKey),     // API key
-    "gpt-4o-mini-tts",   // Model
-    text,                // Input text
-    "alloy",             // Voice
-    "mp3",               // Response format
-    "1.0"                // Speed
-  );
+  extern String g_api_host;
+  String host_original = g_api_host;
+  g_api_host = "api.openai.com";
+
+  String openAiKey = "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"; 
+
+    // 4. Faz a requisição de voz usando a chave da OpenAI e o modelo TTS deles
+    bool success = audio.openai_speech(
+      openAiKey,           // API key forçada da OpenAI
+      "tts-1",             // Modelo de voz padrão da OpenAI
+      text,                // Input text
+      "alloy",             // Voice
+      "mp3",               // Response format
+      "1.0"                // Speed
+    );
+
+    // 5. Restaura o host original (Google Gemini) para que a próxima requisição de chat funcione
+    g_api_host = host_original;
+
+    return success;
 }
 
 /**
@@ -1123,62 +1130,55 @@ String ArduinoGPTChat::speechToTextFromBuffer(uint8_t* audioBuffer, size_t buffe
   
   Serial.println("Audio buffer size: " + String(bufferSize) + " bytes");
   
-  // Use same boundary as Python example
   String boundary = "wL36Yn8afVp8Ag7AmP8qZ0SA4n1v9T";
 
-  // Build multipart/form-data request body parts
-  // File part
+  WiFiClientSecure client;
+  client.setInsecure(); 
+  client.setTimeout(20000); 
+  
+  HTTPClient http;
+  http.begin(client, "https://api.openai.com/v1/audio/transcriptions");
+  http.setTimeout(20000); 
+
   String part1 = "--" + boundary + "\r\n";
   part1 += "Content-Disposition: form-data; name=file; filename=audio.wav\r\n";
   part1 += "Content-Type: audio/wav\r\n\r\n";
 
-  // Model part
   String part2 = "\r\n--" + boundary + "\r\n";
   part2 += "Content-Disposition: form-data; name=model;\r\n";
   part2 += "Content-Type: text/plain\r\n\r\n";
   part2 += "whisper-1";
 
-  // Prompt part (matching Python example)
   String part3 = "\r\n--" + boundary + "\r\n";
   part3 += "Content-Disposition: form-data; name=prompt;\r\n";
   part3 += "Content-Type: text/plain\r\n\r\n";
   part3 += "eiusmod nulla";
 
-  // Response format part
   String part4 = "\r\n--" + boundary + "\r\n";
   part4 += "Content-Disposition: form-data; name=response_format;\r\n";
   part4 += "Content-Type: text/plain\r\n\r\n";
   part4 += "json";
 
-  // Temperature part
   String part5 = "\r\n--" + boundary + "\r\n";
   part5 += "Content-Disposition: form-data; name=temperature;\r\n";
   part5 += "Content-Type: text/plain\r\n\r\n";
   part5 += "0";
 
-  // Language part (matching Python example)
   String part6 = "\r\n--" + boundary + "\r\n";
   part6 += "Content-Disposition: form-data; name=language;\r\n";
   part6 += "Content-Type: text/plain\r\n\r\n";
   part6 += "";
 
-  // End boundary
   String part7 = "\r\n--" + boundary + "--\r\n";
 
-  // Calculate total content length
   size_t totalLength = part1.length() + bufferSize + part2.length() + part3.length() +
                       part4.length() + part5.length() + part6.length() + part7.length();
-  
-  // Initialize HTTP client
-  HTTPClient http;
-  http.begin(_sttApiUrl);
 
-  // Set request headers
+  // Configuração dos Cabeçalhos
   http.addHeader("Content-Type", "multipart/form-data; boundary=" + boundary);
   http.addHeader("Authorization", "Bearer " + String(_apiKey));
   http.addHeader("Content-Length", String(totalLength));
 
-  // Merge all parts into complete request body
   Serial.println("Preparing request body...");
   uint8_t* requestBody = (uint8_t*)malloc(totalLength);
   if (!requestBody) {
@@ -1186,77 +1186,49 @@ String ArduinoGPTChat::speechToTextFromBuffer(uint8_t* audioBuffer, size_t buffe
     return response;
   }
 
-  // Copy each part to request body
   size_t pos = 0;
-
-  // Copy part1
   memcpy(requestBody + pos, part1.c_str(), part1.length());
   pos += part1.length();
-
-  // Copy audio data
   memcpy(requestBody + pos, audioBuffer, bufferSize);
   pos += bufferSize;
-
-  // Copy remaining parts
   memcpy(requestBody + pos, part2.c_str(), part2.length());
   pos += part2.length();
-
   memcpy(requestBody + pos, part3.c_str(), part3.length());
   pos += part3.length();
-
   memcpy(requestBody + pos, part4.c_str(), part4.length());
   pos += part4.length();
-
   memcpy(requestBody + pos, part5.c_str(), part5.length());
   pos += part5.length();
-
   memcpy(requestBody + pos, part6.c_str(), part6.length());
   pos += part6.length();
-
   memcpy(requestBody + pos, part7.c_str(), part7.length());
   pos += part7.length();
 
-  // Confirm total length matches
-  if (pos != totalLength) {
-    Serial.println("Warning: actual body length doesn't match calculated length");
-    Serial.println("Calculated: " + String(totalLength) + ", Actual: " + String(pos));
-  }
-
-  // Send request
   Serial.println("Sending STT request...");
   int httpCode = http.POST(requestBody, totalLength);
 
-  // Free request body memory
   free(requestBody);
   
   Serial.print("HTTP Response Code: ");
   Serial.println(httpCode);
   
   if (httpCode == 200) {
-    // Get response body
     response = http.getString();
-    Serial.println("Got STT response: " + response);
-
-    // Parse JSON response
     DynamicJsonDocument jsonDoc(1024);
     DeserializationError error = deserializeJson(jsonDoc, response);
 
     if (!error) {
-      // Extract transcribed text
       response = jsonDoc["text"].as<String>();
     } else {
-      Serial.print("JSON parsing error: ");
-      Serial.println(error.c_str());
       response = "";
     }
   } else {
     Serial.print("HTTP Error: ");
     Serial.println(httpCode);
-    // Try to get error response content
-    String errorResponse = http.getString();
-    if (errorResponse.length() > 0) {
-      Serial.println("Error response: " + errorResponse);
-    }
+    
+    Serial.print("Memória RAM livre no momento do erro: ");
+    Serial.print(ESP.getFreeHeap());
+    Serial.println(" bytes");
     response = "";
   }
   

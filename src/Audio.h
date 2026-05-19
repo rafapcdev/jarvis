@@ -66,7 +66,7 @@ extern __attribute__((weak)) void audio_log(uint8_t logLevel, const char* msg, c
 
 class AudioBuffer {
 // AudioBuffer will be allocated in PSRAM, If PSRAM not available or has not enough space AudioBuffer will be
-// allocated in FlashRAM with reduced size
+// allocated in FlashRM with reduced size
 //
 //  m_buffer            m_readPtr                 m_writePtr                 m_endPtr
 //   |                       |<------dataLength------->|<------ writeSpace ----->|
