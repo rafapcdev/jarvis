@@ -19,11 +19,15 @@ const char* openAiKey = ENV_OPENAI_API_KEY; // Usada apenas para o Whisper (Reco
 // !!! COLOQUE AQUI O MAC ADDRESS DO SEU ESP2 !!!
 uint8_t enderecoESP2[] = {0x24, 0x0A, 0xC4, 0xXX, 0xXX, 0xXX}; 
 
+// Chave Criptográfica ESP-NOW (Deve ser igual no ESP1 e ESP2 - exatos 16 bytes)
+uint8_t chaveEspNow[16] = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00};
+
 ArduinoGPTChat gptChat(openAiKey, "https://api.openai.com/v1/audio/transcriptions");
 esp_now_peer_info_t peerInfo;
 
 bool buttonPressed = false;
 bool wasButtonPressed = false;
+unsigned long ultimoCheckWiFi = 0;
 
 void setup() {
   Serial.begin(115200);
@@ -32,8 +36,7 @@ void setup() {
   Serial.println("\n[ESP1] Iniciando Ouvido...");
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
-  Serial.println("\n[ESP1] WiFi Conectado!");
+  // Removido o while() bloqueante. A conexao sera verificada no loop()
 
   // Inicia o Rádio (ESP-NOW)
   if (esp_now_init() != ESP_OK) {
@@ -41,10 +44,12 @@ void setup() {
     return;
   }
 
-  // Regista o ESP2 como recetor
+  // Regista o ESP2 como recetor com CRIPTOGRAFIA
+  memset(&peerInfo, 0, sizeof(peerInfo)); // Importante limpar a struct
   memcpy(peerInfo.peer_addr, enderecoESP2, 6);
   peerInfo.channel = 0; 
-  peerInfo.encrypt = false;
+  peerInfo.encrypt = true; // Criptografia ativada!
+  memcpy(peerInfo.lmk, chaveEspNow, 16);
   esp_now_add_peer(&peerInfo);
 
   // Inicia o Microfone
@@ -55,15 +60,29 @@ void setup() {
 }
 
 void loop() {
+  // Reconexão Wi-Fi Não-Bloqueante
+  if (WiFi.status() != WL_CONNECTED) {
+    if (millis() - ultimoCheckWiFi > 5000) {
+      Serial.println("[ESP1] Tentando reconectar ao Wi-Fi...");
+      WiFi.disconnect();
+      WiFi.begin(ssid, password);
+      ultimoCheckWiFi = millis();
+    }
+  }
+
   buttonPressed = (digitalRead(BOOT_BUTTON_PIN) == LOW);
 
   if (buttonPressed && !wasButtonPressed && !gptChat.isRecording()) {
     Serial.println("\n[ GRAVANDO ] Fale agora...");
+    String cmd = "[BEEP_START]";
+    esp_now_send(enderecoESP2, (uint8_t *)cmd.c_str(), cmd.length() + 1); // Avisa o ESP2 para bipar
     gptChat.startRecording();
     wasButtonPressed = true;
   }
   else if (!buttonPressed && wasButtonPressed && gptChat.isRecording()) {
     Serial.println("[ ENVIANDO PARA A OPENAI ]...");
+    String cmd = "[BEEP_STOP]";
+    esp_now_send(enderecoESP2, (uint8_t *)cmd.c_str(), cmd.length() + 1); // Avisa o ESP2 para bipar (processando)
     
     // A biblioteca processa o áudio usando a sua função corrigida
     String textoTranscrito = gptChat.stopRecordingAndProcess();

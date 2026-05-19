@@ -14,6 +14,8 @@
 
 // Pino do LED Emissor de Infravermelhos
 const uint16_t PINO_IR = 4;
+// Pino do Buzzer para sons de feedback (Conecte um buzzer passivo ou ativo aqui, consome 0 RAM)
+const uint16_t PINO_BUZZER = 15;
 
 // ----- CONFIGURAÇÕES DA REDE E API -----
 const char* ssid     = ENV_WIFI_SSID;
@@ -21,11 +23,18 @@ const char* password = ENV_WIFI_PASSWORD;
 const char* geminiKey = ENV_GEMINI_API_KEY; 
 const char* openAiKey = ENV_OPENAI_API_KEY; // Usada apenas para gerar a Voz (TTS)
 
+// !!! COLOQUE AQUI O MAC ADDRESS DO SEU ESP1 !!! (Necessario para a criptografia funcionar no receptor)
+uint8_t enderecoESP1[] = {0xFF, 0xFF, 0xFF, 0xXX, 0xXX, 0xXX}; 
+
+// Chave Criptográfica ESP-NOW (Deve ser igual no ESP1 e ESP2 - exatos 16 bytes)
+uint8_t chaveEspNow[16] = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00};
+
 Audio audio;
 IRsend irsend(PINO_IR);
 
 String mensagemRecebida = "";
 bool temNovaMensagem = false;
+unsigned long ultimoCheckWiFi = 0;
 
 // Função ultraleve para falar com o Gemini
 String enviarParaGemini(String pergunta) {
@@ -68,22 +77,44 @@ void aoReceberDados(const esp_now_recv_info_t *info, const uint8_t *dados, int t
   char bufferTexto[tamanho + 1];
   memcpy(bufferTexto, dados, tamanho);
   bufferTexto[tamanho] = '\0';
-  mensagemRecebida = String(bufferTexto);
+  String msg = String(bufferTexto);
+  
+  // Intercepta comandos de som
+  if (msg == "[BEEP_START]") {
+    tone(PINO_BUZZER, 2000, 100); // Bipe agudo e rápido (100ms) ao começar a gravar
+    return;
+  }
+  if (msg == "[BEEP_STOP]") {
+    tone(PINO_BUZZER, 1000, 150); // Bipe mais grave ao parar de gravar e começar a pensar
+    return;
+  }
+
+  mensagemRecebida = msg;
   temNovaMensagem = true;
 }
 
 void setup() {
   Serial.begin(115200);
   irsend.begin();
+  pinMode(PINO_BUZZER, OUTPUT);
 
   Serial.println("\n[ESP2] Iniciando Cerebro e Boca...");
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
-  Serial.println("\n[ESP2] WiFi Conectado!");
+  // Removido while bloqueante. A conexao sera verificada no loop()
 
   // Inicia o Rádio
   if (esp_now_init() != ESP_OK) return;
+  
+  // Para ESP-NOW Criptografado, o receptor também precisa registrar o emissor
+  esp_now_peer_info_t peerInfo;
+  memset(&peerInfo, 0, sizeof(peerInfo));
+  memcpy(peerInfo.peer_addr, enderecoESP1, 6);
+  peerInfo.channel = 0; 
+  peerInfo.encrypt = true;
+  memcpy(peerInfo.lmk, chaveEspNow, 16);
+  esp_now_add_peer(&peerInfo);
+
   esp_now_register_recv_cb(aoReceberDados);
 
   // Configurações de Áudio com máxima RAM livre
@@ -95,6 +126,16 @@ void setup() {
 }
 
 void loop() {
+  // Reconexão Wi-Fi Não-Bloqueante
+  if (WiFi.status() != WL_CONNECTED) {
+    if (millis() - ultimoCheckWiFi > 5000) {
+      Serial.println("[ESP2] Tentando reconectar ao Wi-Fi...");
+      WiFi.disconnect();
+      WiFi.begin(ssid, password);
+      ultimoCheckWiFi = millis();
+    }
+  }
+
   audio.loop();
 
   if (temNovaMensagem) {
