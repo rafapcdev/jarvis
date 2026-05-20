@@ -437,18 +437,18 @@ void ArduinoTTSChat::setAudioPlayCallback(AudioPlayCallback callback) {
  * @brief Send task_start message
  */
 void ArduinoTTSChat::sendTaskStart() {
-  StaticJsonDocument<512> doc;
+  JsonDocument doc;
   doc["event"] = "task_start";
   doc["model"] = _model;
 
-  JsonObject voice = doc.createNestedObject("voice_setting");
+  JsonObject voice = doc["voice_setting"].to<JsonObject>();
   voice["voice_id"] = _voiceId;
   voice["speed"] = _speed;
   voice["vol"] = _volume;
   voice["pitch"] = _pitch;
   voice["english_normalization"] = _englishNorm;
 
-  JsonObject audio = doc.createNestedObject("audio_setting");
+  JsonObject audio = doc["audio_setting"].to<JsonObject>();
   audio["sample_rate"] = _sampleRate;
   audio["bitrate"] = _bitrate;
   audio["format"] = _format;
@@ -468,7 +468,7 @@ void ArduinoTTSChat::sendTaskStart() {
  * @param text Text to synthesize
  */
 void ArduinoTTSChat::sendTaskContinue(const char* text) {
-  StaticJsonDocument<1024> doc;
+  JsonDocument doc;
   doc["event"] = "task_continue";
   doc["text"] = text;
 
@@ -484,7 +484,7 @@ void ArduinoTTSChat::sendTaskContinue(const char* text) {
  * @brief Send task_finish message
  */
 void ArduinoTTSChat::sendTaskFinish() {
-  StaticJsonDocument<64> doc;
+  JsonDocument doc;
   doc["event"] = "task_finish";
 
   String json;
@@ -707,7 +707,7 @@ void ArduinoTTSChat::parseJsonResponse(const char* json, size_t len) {
   if (docSize < 4096) docSize = 4096;
   if (docSize > 200000) docSize = 200000;  // Cap at 200KB
 
-  DynamicJsonDocument doc(docSize);
+  JsonDocument doc;
   DeserializationError error = deserializeJson(doc, json, len);
 
   if (error) {
@@ -722,7 +722,7 @@ void ArduinoTTSChat::parseJsonResponse(const char* json, size_t len) {
   const char* event = doc["event"];
   if (event == nullptr) {
     // Check for connected_success (initial connection)
-    if (doc.containsKey("event")) {
+    if (!doc["event"].isNull()) {
       event = doc["event"].as<const char*>();
     }
   }
@@ -745,10 +745,10 @@ void ArduinoTTSChat::parseJsonResponse(const char* json, size_t len) {
   }
 
   // Check for audio data
-  if (doc.containsKey("data") && doc["data"].containsKey("audio")) {
+  if (!doc["data"].isNull() && !doc["data"]["audio"].isNull()) {
     const char* audioHex = doc["data"]["audio"];
     if (audioHex != nullptr && strlen(audioHex) > 0) {
-      _chunksReceived++;
+      _chunksReceived = _chunksReceived + 1;
       _receivingAudio = true;
 
       if (_chunksReceived == 1) {
@@ -788,7 +788,7 @@ void ArduinoTTSChat::parseJsonResponse(const char* json, size_t len) {
   }
 
   // Check if final
-  if (doc.containsKey("is_final") && doc["is_final"].as<bool>()) {
+  if (!doc["is_final"].isNull() && doc["is_final"].as<bool>()) {
     Serial.printf("Audio synthesis completed: %d chunks received\n", _chunksReceived);
     _receivingAudio = false;
   }

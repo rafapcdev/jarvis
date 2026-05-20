@@ -83,5 +83,17 @@ void loop() {
   else if (!buttonPressed && !gptChat.isRecording()) {
     wasButtonPressed = false;
   }
+
+  // Verifica se há texto digitado no Monitor Serial para enviar ao ESP2
+  if (Serial.available() > 0) {
+    String entradaSerial = Serial.readStringUntil('\n');
+    entradaSerial.trim();
+    if (entradaSerial.length() > 0) {
+      Serial.println("\n[ SERIAL ] Pergunta recebida: " + entradaSerial);
+      Serial.println("[ SERIAL ] Enviando para o ESP2...");
+      esp_now_send(enderecoESP2, (uint8_t *)entradaSerial.c_str(), entradaSerial.length() + 1);
+    }
+  }
+
   delay(10);
 }

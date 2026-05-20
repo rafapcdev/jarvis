@@ -1,6 +1,7 @@
 #include "ArduinoGPTChat.h"
 #include <SPIFFS.h>
 #include <WiFiClientSecure.h>
+#include <env.h>
 
 // Default API configuration - users can modify these values or set their own configuration via setApiConfig()
 const char* DEFAULT_API_KEY = "";
@@ -204,22 +205,22 @@ String ArduinoGPTChat::sendImageMessage(const char* imageFilePath, String questi
   checkFile.close();
   
   // Now build JSON using smaller buffer
-  DynamicJsonDocument doc(2048); // Only need small buffer since Base64 data not included
+  JsonDocument doc; // Only need small buffer since Base64 data not included
   doc["model"] = "gemini1.5-flash";
   doc["messages"] = JsonArray();
-  JsonObject message = doc["messages"].createNestedObject();
+  JsonObject message = doc["messages"].add<JsonObject>();
   message["role"] = "user";
-  JsonArray content = message.createNestedArray("content");
+  JsonArray content = message["content"].to<JsonArray>();
   
   // Add text part
-  JsonObject textPart = content.createNestedObject();
+  JsonObject textPart = content.add<JsonObject>();
   textPart["type"] = "text";
   textPart["text"] = question;
 
   // Add image part
-  JsonObject imagePart = content.createNestedObject();
+  JsonObject imagePart = content.add<JsonObject>();
   imagePart["type"] = "image_url";
-  JsonObject imageUrl = imagePart.createNestedObject("image_url");
+  JsonObject imageUrl = imagePart["image_url"].to<JsonObject>();
 
   // Set placeholder, replace later
   imageUrl["url"] = "PLACEHOLDER_FOR_BASE64_DATA";
@@ -601,13 +602,13 @@ String ArduinoGPTChat::_buildPayload(String message) {
     bufferSize = 768 + (_conversationHistory.size() * 512);  // Reserve extra space for history
   }
 
-  DynamicJsonDocument doc(bufferSize);
+  JsonDocument doc;
   doc["model"] = "gpt-4.1-nano";
-  JsonArray messages = doc.createNestedArray("messages");
+  JsonArray messages = doc["messages"].to<JsonArray>();
 
   // If system prompt configured, add system message
   if (_systemPrompt.length() > 0) {
-    JsonObject sysMsg = messages.createNestedObject();
+    JsonObject sysMsg = messages.add<JsonObject>();
     sysMsg["role"] = "system";
     sysMsg["content"] = _systemPrompt;
   }
@@ -616,19 +617,19 @@ String ArduinoGPTChat::_buildPayload(String message) {
   if (_memoryEnabled) {
     for (size_t i = 0; i < _conversationHistory.size(); i++) {
       // Add user message from history
-      JsonObject historyUserMsg = messages.createNestedObject();
+      JsonObject historyUserMsg = messages.add<JsonObject>();
       historyUserMsg["role"] = "user";
       historyUserMsg["content"] = _conversationHistory[i].first;
 
       // Add assistant reply from history
-      JsonObject historyAssistantMsg = messages.createNestedObject();
+      JsonObject historyAssistantMsg = messages.add<JsonObject>();
       historyAssistantMsg["role"] = "assistant";
       historyAssistantMsg["content"] = _conversationHistory[i].second;
     }
   }
 
   // Add current user message
-  JsonObject userMsg = messages.createNestedObject();
+  JsonObject userMsg = messages.add<JsonObject>();
   userMsg["role"] = "user";
   userMsg["content"] = message;
 
@@ -646,7 +647,7 @@ String ArduinoGPTChat::_buildPayload(String message) {
  * Remove newlines to get clean text output
  */
 String ArduinoGPTChat::_processResponse(String response) {
-  DynamicJsonDocument jsonDoc(1024);
+  JsonDocument jsonDoc;
   deserializeJson(jsonDoc, response);
   String outputText = jsonDoc["choices"][0]["message"]["content"];
   // Replace newlines with spaces to preserve full response for TTS
@@ -671,7 +672,8 @@ bool ArduinoGPTChat::textToSpeech(String text) {
   String host_original = g_api_host;
   g_api_host = "api.openai.com";
 
-  String openAiKey = "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"; 
+  // Chave carregada do env.h (arquivo protegido pelo .gitignore)
+  String openAiKey = String(ENV_OPENAI_API_KEY);
 
     // 4. Faz a requisição de voz usando a chave da OpenAI e o modelo TTS deles
     bool success = audio.openai_speech(
@@ -867,7 +869,7 @@ String ArduinoGPTChat::speechToText(const char* audioFilePath) {
     Serial.println("Got STT response: " + response);
 
     // Parse JSON response
-    DynamicJsonDocument jsonDoc(1024);
+    JsonDocument jsonDoc;
     DeserializationError error = deserializeJson(jsonDoc, response);
 
     if (!error) {
@@ -1001,6 +1003,10 @@ String ArduinoGPTChat::stopRecordingAndProcess() {
   uint8_t* wavBuffer = createWAVBuffer(_audioBuffer.data(), _audioBuffer.size());
   size_t wavSize = calculateWAVSize(_audioBuffer.size());
 
+  // Free audio buffer memory early before HTTP request to save heap
+  _audioBuffer.clear();
+  _audioBuffer.shrink_to_fit();
+
   if (wavBuffer == nullptr) {
     Serial.println("Failed to create WAV buffer!");
     return "";
@@ -1043,7 +1049,13 @@ size_t ArduinoGPTChat::getRecordedSampleCount() {
  */
 uint8_t* ArduinoGPTChat::createWAVBuffer(int16_t* samples, size_t numSamples) {
   size_t wavSize = calculateWAVSize(numSamples);
-  uint8_t* wavBuffer = (uint8_t*)malloc(wavSize);
+  
+  uint8_t* wavBuffer = nullptr;
+  if (psramFound()) {
+    wavBuffer = (uint8_t*)ps_malloc(wavSize);
+  } else {
+    wavBuffer = (uint8_t*)malloc(wavSize);
+  }
 
   if (wavBuffer == nullptr) {
     return nullptr;
@@ -1137,7 +1149,15 @@ String ArduinoGPTChat::speechToTextFromBuffer(uint8_t* audioBuffer, size_t buffe
   client.setTimeout(20000); 
   
   HTTPClient http;
-  http.begin(client, "https://api.openai.com/v1/audio/transcriptions");
+  
+  // Use _sttApiUrl configured by the user (or default)
+  // Check if it starts with https to use WiFiClientSecure
+  if (_sttApiUrl.startsWith("https://")) {
+    http.begin(client, _sttApiUrl);
+  } else {
+    http.begin(_sttApiUrl);
+  }
+  
   http.setTimeout(20000); 
 
   String part1 = "--" + boundary + "\r\n";
@@ -1180,9 +1200,18 @@ String ArduinoGPTChat::speechToTextFromBuffer(uint8_t* audioBuffer, size_t buffe
   http.addHeader("Content-Length", String(totalLength));
 
   Serial.println("Preparing request body...");
-  uint8_t* requestBody = (uint8_t*)malloc(totalLength);
+  Serial.flush();
+  
+  uint8_t* requestBody = nullptr;
+  if (psramFound()) {
+    requestBody = (uint8_t*)ps_malloc(totalLength);
+  } else {
+    requestBody = (uint8_t*)malloc(totalLength);
+  }
+  
   if (!requestBody) {
     Serial.println("Failed to allocate memory for request body!");
+    Serial.flush();
     return response;
   }
 
@@ -1204,7 +1233,8 @@ String ArduinoGPTChat::speechToTextFromBuffer(uint8_t* audioBuffer, size_t buffe
   memcpy(requestBody + pos, part7.c_str(), part7.length());
   pos += part7.length();
 
-  Serial.println("Sending STT request...");
+  Serial.println("Sending STT request to OpenAI...");
+  Serial.flush();
   int httpCode = http.POST(requestBody, totalLength);
 
   free(requestBody);
@@ -1214,7 +1244,7 @@ String ArduinoGPTChat::speechToTextFromBuffer(uint8_t* audioBuffer, size_t buffe
   
   if (httpCode == 200) {
     response = http.getString();
-    DynamicJsonDocument jsonDoc(1024);
+    JsonDocument jsonDoc;
     DeserializationError error = deserializeJson(jsonDoc, response);
 
     if (!error) {

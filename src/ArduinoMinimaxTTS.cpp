@@ -139,13 +139,13 @@ bool ArduinoMinimaxTTS::saveAudioToFile(const String& text, const char* filepath
   http.addHeader("Authorization", token_key);
 
   // Create JSON document
-  DynamicJsonDocument doc(1024);
+  JsonDocument doc;
   doc["model"] = _model;
   doc["text"] = text;
   doc["stream"] = false;  // Non-streaming
   
   // voice_setting object
-  JsonObject voice_setting = doc.createNestedObject("voice_setting");
+  JsonObject voice_setting = doc["voice_setting"].to<JsonObject>();
   voice_setting["voice_id"] = _voiceId;
   voice_setting["speed"] = _speed;
   voice_setting["vol"] = _volume;
@@ -155,7 +155,7 @@ bool ArduinoMinimaxTTS::saveAudioToFile(const String& text, const char* filepath
   }
   
   // audio_setting object
-  JsonObject audio_setting = doc.createNestedObject("audio_setting");
+  JsonObject audio_setting = doc["audio_setting"].to<JsonObject>();
   audio_setting["sample_rate"] = _sampleRate;
   audio_setting["bitrate"] = _bitrate;
   audio_setting["format"] = _audioFormat;
@@ -319,12 +319,12 @@ bool ArduinoMinimaxTTS::getAudioDataToPSRAM(const String& text, uint8_t** outBuf
   http.addHeader("Authorization", token_key);
 
   // Create request JSON
-  DynamicJsonDocument doc(1024);
+  JsonDocument doc;
   doc["model"] = _model;
   doc["text"] = text;
   doc["stream"] = false;
   
-  JsonObject voice_setting = doc.createNestedObject("voice_setting");
+  JsonObject voice_setting = doc["voice_setting"].to<JsonObject>();
   voice_setting["voice_id"] = _voiceId;
   voice_setting["speed"] = _speed;
   voice_setting["vol"] = _volume;
@@ -333,7 +333,7 @@ bool ArduinoMinimaxTTS::getAudioDataToPSRAM(const String& text, uint8_t** outBuf
     voice_setting["emotion"] = _emotion;
   }
   
-  JsonObject audio_setting = doc.createNestedObject("audio_setting");
+  JsonObject audio_setting = doc["audio_setting"].to<JsonObject>();
   audio_setting["sample_rate"] = _sampleRate;
   audio_setting["bitrate"] = _bitrate;
   audio_setting["format"] = _audioFormat;
@@ -464,13 +464,13 @@ bool ArduinoMinimaxTTS::synthesizeAndPlayFromURL(const String& text) {
   http.addHeader("Authorization", token_key);
 
   // Create request JSON - Key: set output_format to "url"
-  DynamicJsonDocument doc(1024);
+  JsonDocument doc;
   doc["model"] = _model;
   doc["text"] = text;
   doc["stream"] = false;
   doc["output_format"] = "url";  // Key parameter: return URL instead of hex data
   
-  JsonObject voice_setting = doc.createNestedObject("voice_setting");
+  JsonObject voice_setting = doc["voice_setting"].to<JsonObject>();
   voice_setting["voice_id"] = _voiceId;
   voice_setting["speed"] = _speed;
   voice_setting["vol"] = _volume;
@@ -479,7 +479,7 @@ bool ArduinoMinimaxTTS::synthesizeAndPlayFromURL(const String& text) {
     voice_setting["emotion"] = _emotion;
   }
   
-  JsonObject audio_setting = doc.createNestedObject("audio_setting");
+  JsonObject audio_setting = doc["audio_setting"].to<JsonObject>();
   audio_setting["sample_rate"] = _sampleRate;
   audio_setting["bitrate"] = _bitrate;
   audio_setting["format"] = _audioFormat;
@@ -509,7 +509,7 @@ bool ArduinoMinimaxTTS::synthesizeAndPlayFromURL(const String& text) {
   
   Serial.println("[MiniMax TTS] Response received, parsing URL...");
   
-  DynamicJsonDocument responseDoc(2048);
+  JsonDocument responseDoc;
   DeserializationError error = deserializeJson(responseDoc, response);
   
   if (error) {

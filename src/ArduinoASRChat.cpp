@@ -557,7 +557,7 @@ void ArduinoASRChat::sendFullRequest() {
   String uid = String(ESP.getEfuseMac(), HEX);
 
   // Build JSON configuration
-  StaticJsonDocument<512> doc;
+  JsonDocument doc;
   doc["app"]["cluster"] = _cluster;                    // Service cluster
   doc["user"]["uid"] = uid;                            // User ID
   doc["request"]["reqid"] = reqid;                     // Request ID
@@ -799,7 +799,7 @@ void ArduinoASRChat::parseResponse(uint8_t* data, size_t len) {
   }
 
   // Parse JSON response
-  StaticJsonDocument<2048> doc;
+  JsonDocument doc;
   DeserializationError error = deserializeJson(doc, payload, payload_len);
 
   if (error) {
@@ -807,7 +807,7 @@ void ArduinoASRChat::parseResponse(uint8_t* data, size_t len) {
   }
 
   // Check error code
-  if (doc.containsKey("code")) {
+  if (!doc["code"].isNull()) {
     int code = doc["code"];
     if (code != 1000 && code != 1013) {
       // Ignore 1000 (success) and 1013 (silence detection)
@@ -818,12 +818,12 @@ void ArduinoASRChat::parseResponse(uint8_t* data, size_t len) {
   }
 
   // Extract recognition results
-  if (doc.containsKey("result")) {
+  if (!doc["result"].isNull()) {
     JsonVariant result = doc["result"];
     String current_text = "";
 
     if (result.is<JsonArray>() && result.size() > 0) {
-      if (result[0].containsKey("text")) {
+      if (!result[0]["text"].isNull()) {
         current_text = result[0]["text"].as<String>();
       }
     }
