@@ -9,8 +9,9 @@
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-ESP32-red.svg)](https://www.espressif.com/)
 [![IA](https://img.shields.io/badge/IA-Groq%20%7C%20Llama%203.3-blueviolet.svg)](https://groq.com)
+[![TTS](https://img.shields.io/badge/TTS-Google%20Translate-success.svg)](#)
 
-**Assistente de voz serverless com dois ESP32 comunicando por rádio (ESP-NOW), IA gratuita via Groq e reconhecimento de voz via microfone I2S.**
+**Assistente de voz serverless com dois ESP32 comunicando por rádio (ESP-NOW), IA e conversão de voz para texto via Groq e síntese de voz (TTS) 100% gratuita via Google Translate.**
 
 </div>
 
@@ -67,7 +68,7 @@ O JARVIS é um assistente de voz distribuído entre **dois ESP32**, onde cada um
 │  • Envia para Groq API → Llama 3.3-70b               │
 │  • Resposta em até 20 palavras                       │
 │  • Controle de Ar Condicionado via IR (opcional)     │
-│  • Sintetiza voz via OpenAI TTS → Alto-falante I2S   │
+│  • Sintetiza voz via Google Translate TTS (100% free)│
 └──────────────────────────────────────────────────────┘
 ```
 
@@ -77,7 +78,7 @@ O JARVIS é um assistente de voz distribuído entre **dois ESP32**, onde cada um
 |-----|--------|-------|-----------------|
 | [Groq](https://groq.com) | Chat IA (Llama 3.3-70b) | Gratuito | 14.400 req/dia |
 | [Groq Whisper](https://groq.com) | Fala → Texto (STT) | Gratuito | incluído |
-| [OpenAI TTS](https://platform.openai.com) | Texto → Voz (TTS) | Pago | conforme uso |
+| [Google Translate](#) | Texto → Voz (TTS) | Gratuito | ilimitado |
 
 ---
 
@@ -154,9 +155,8 @@ Edite o arquivo em `/home/dev/Arduino/libraries/jarvis/env.h` (ou no diretório 
 
 #define ENV_WIFI_SSID       "SEU_WIFI_AQUI"
 #define ENV_WIFI_PASSWORD   "SUA_SENHA_AQUI"
-#define ENV_GEMINI_API_KEY  "SUA_CHAVE_GEMINI"
+#define ENV_GEMINI_API_KEY  "SUA_CHAVE_GEMINI_OPCIONAL"
 #define ENV_GROQ_API_KEY    "SUA_CHAVE_GROQ"
-#define ENV_OPENAI_API_KEY  "SUA_CHAVE_OPENAI"
 
 #endif
 ```
@@ -164,7 +164,6 @@ Edite o arquivo em `/home/dev/Arduino/libraries/jarvis/env.h` (ou no diretório 
 Como obter as chaves gratuitas:
 - **Groq**: https://console.groq.com → API Keys → Create API Key
 - **Gemini** (opcional): https://aistudio.google.com/apikey
-- **OpenAI** (TTS): https://platform.openai.com/api-keys
 
 ### 3. Configure o MAC Address do ESP2 no ESP1
 
@@ -420,7 +419,6 @@ jarvis/
 | `ENV_WIFI_PASSWORD` | Senha da rede WiFi | — |
 | `ENV_GROQ_API_KEY` | Chave da Groq (IA + STT) | [console.groq.com](https://console.groq.com) |
 | `ENV_GEMINI_API_KEY` | Chave do Gemini (opcional) | [aistudio.google.com](https://aistudio.google.com/apikey) |
-| `ENV_OPENAI_API_KEY` | Chave OpenAI (TTS de voz) | [platform.openai.com](https://platform.openai.com/api-keys) |
 
 ---
 

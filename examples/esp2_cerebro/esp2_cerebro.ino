@@ -20,7 +20,6 @@ const char* ssid     = ENV_WIFI_SSID;
 const char* password = ENV_WIFI_PASSWORD;
 // Groq: API gratuita (14.400 req/dia), compativel com o formato OpenAI
 const char* groqKey  = ENV_GROQ_API_KEY;
-const char* openAiKey = ENV_OPENAI_API_KEY; // Usada para gerar a Voz (TTS)
 
 Audio audio;
 IRsend irsend(PINO_IR);
@@ -153,12 +152,12 @@ void loop() {
         respostaIA.replace("[AR_TEMP_DOWN]", "");
       }
 
-      // Toca o áudio da fala humana via OpenAI de forma nativa e leve
+      // Toca o áudio da fala humana via Google Translate TTS (100% Gratuito)
       respostaIA.trim();
       if (respostaIA.length() > 0) {
         Serial.println("> Groq Respondeu: " + respostaIA);
-        // Desativa a conexao segura estrita temporariamente para o audio fluir rapido
-        audio.openai_speech(String(openAiKey), "tts-1", respostaIA, "alloy", "mp3", "1.0");
+        // Usa a API do Google Translate (limite ~200 caracteres, ideal para frases curtas)
+        audio.connecttospeech(respostaIA.c_str(), "pt-BR");
       }
     }
   }
