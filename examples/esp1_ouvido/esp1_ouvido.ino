@@ -14,12 +14,16 @@
 // ----- CONFIGURAÇÕES DA REDE E API -----
 const char* ssid     = ENV_WIFI_SSID;
 const char* password = ENV_WIFI_PASSWORD;
-const char* openAiKey = ENV_OPENAI_API_KEY; // Usada apenas para o Whisper (Reconhecimento de Voz)
+// Chave carregada do env.h (protegido pelo .gitignore)
+const char* groqKey = ENV_GROQ_API_KEY;
 
+// Aqui passamos a URL base da Groq, que emula a OpenAI perfeitamente e de graça!
+ArduinoGPTChat gptChat(groqKey, "https://api.groq.com/openai");
 // !!! COLOQUE AQUI O MAC ADDRESS DO SEU ESP2 !!!
-uint8_t enderecoESP2[] = {0x24, 0x0A, 0xC4, 0xXX, 0xXX, 0xXX}; 
+uint8_t enderecoESP2[] = {0x78, 0x1C, 0x3C, 0xdc, 0x4e, 0x70};    
+//78:1c:3c:dc:4e:70
 
-ArduinoGPTChat gptChat(openAiKey, "https://api.openai.com/v1/audio/transcriptions");
+
 esp_now_peer_info_t peerInfo;
 
 bool buttonPressed = false;

@@ -18,8 +18,9 @@ const uint16_t PINO_IR = 4;
 // ----- CONFIGURAÇÕES DA REDE E API -----
 const char* ssid     = ENV_WIFI_SSID;
 const char* password = ENV_WIFI_PASSWORD;
-const char* geminiKey = ENV_GEMINI_API_KEY; 
-const char* openAiKey = ENV_OPENAI_API_KEY; // Usada apenas para gerar a Voz (TTS)
+// Groq: API gratuita (14.400 req/dia), compativel com o formato OpenAI
+const char* groqKey  = ENV_GROQ_API_KEY;
+const char* openAiKey = ENV_OPENAI_API_KEY; // Usada para gerar a Voz (TTS)
 
 Audio audio;
 IRsend irsend(PINO_IR);
@@ -27,48 +28,62 @@ IRsend irsend(PINO_IR);
 String mensagemRecebida = "";
 bool temNovaMensagem = false;
 
-// Função ultraleve para falar com o Gemini
-String enviarParaGemini(String pergunta) {
+// --- Buffers seguros para o callback ESP-NOW (roda numa ISR) ---
+static char _bufferISR[250];
+static int  _tamanhoISR = 0;
+
+// Envia pergunta para a Groq (Llama 3.3) — gratuito, 14.400 req/dia
+String enviarParaGroq(String pergunta) {
   if (WiFi.status() != WL_CONNECTED) return "";
 
+  // Formato OpenAI Chat Completions (Groq é 100% compativel)
+  String payload = "{";
+  payload += "\"model\":\"llama-3.3-70b-versatile\",";
+  payload += "\"max_tokens\":80,";
+  payload += "\"messages\":[";
+  payload += "{\"role\":\"system\",\"content\":\"Seja direto. Responda em ate 10 palavras. Se o usuario pedir para ligar o ar, inclua a tag [AR_ON]. Se pedir para desligar, use [AR_OFF]. Se pedir para subir a temperatura, use [AR_TEMP_UP]. Se pedir para descer, use [AR_TEMP_DOWN].\"},";
+  payload += "{\"role\":\"user\",\"content\":\"" + pergunta + "\"}";
+  payload += "]}";
+
   WiFiClientSecure client;
-  client.setInsecure(); // Criptografia super leve
+  client.setInsecure();
+  client.setHandshakeTimeout(10);
 
   HTTPClient http;
-  String url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + String(geminiKey);
-  http.begin(client, url);
+  http.setTimeout(15000);
+  http.begin(client, "https://api.groq.com/openai/v1/chat/completions");
   http.addHeader("Content-Type", "application/json");
-
-  // O nosso prompt de regras do Ar Condicionado injetado de forma nativa e rápida
-  String payload = "{\"system_instruction\":{\"parts\":{\"text\":\"Seja direto. Responda em ate 10 palavras. Se o usuario pedir para ligar o ar, inclua a tag [AR_ON]. Se pedir para desligar, use [AR_OFF]. Se pedir para subir a temperatura, use [AR_TEMP_UP]. Se pedir para descer, use [AR_TEMP_DOWN].\"}},";
-  payload += "\"contents\":[{\"parts\":[{\"text\":\"" + pergunta + "\"}]}]}";
+  http.addHeader("Authorization", "Bearer " + String(groqKey));
 
   int httpCode = http.sendRequest("POST", payload);
   String resposta = "";
 
   if (httpCode == HTTP_CODE_OK) {
-    String jsonResponse = http.getString();
-    int textIndex = jsonResponse.indexOf("\"text\":");
-    if (textIndex != -1) {
-      int start = jsonResponse.indexOf("\"", textIndex + 7) + 1;
-      int end = jsonResponse.indexOf("\"", start);
-      resposta = jsonResponse.substring(start, end);
-      resposta.replace("\\n", "");
+    String json = http.getString();
+    // Extrai o campo "content" da resposta
+    int idx = json.indexOf("\"content\":");
+    if (idx != -1) {
+      int start = json.indexOf("\"", idx + 10) + 1;
+      int end   = json.indexOf("\"", start);
+      resposta  = json.substring(start, end);
+      resposta.replace("\\n", " ");
       resposta.trim();
     }
   } else {
-    Serial.println("Erro na conexao com o Gemini: " + String(httpCode));
+    String corpo = http.getString();
+    Serial.println("[Groq] Erro HTTP: " + String(httpCode));
+    Serial.println("[Groq] Detalhe: " + corpo.substring(0, 150));
   }
   http.end();
   return resposta;
 }
 
-// Callback super rápido do ESP-NOW (recebe o texto do ESP1)
+// Callback do ESP-NOW (roda numa ISR — apenas copia bytes para buffer estático)
 void aoReceberDados(const esp_now_recv_info_t *info, const uint8_t *dados, int tamanho) {
-  char bufferTexto[tamanho + 1];
-  memcpy(bufferTexto, dados, tamanho);
-  bufferTexto[tamanho] = '\0';
-  mensagemRecebida = String(bufferTexto);
+  if (tamanho > 249) tamanho = 249; // protege contra overflow
+  memcpy(_bufferISR, dados, tamanho);
+  _bufferISR[tamanho] = '\0';
+  _tamanhoISR = tamanho;
   temNovaMensagem = true;
 }
 
@@ -99,9 +114,20 @@ void loop() {
 
   if (temNovaMensagem) {
     temNovaMensagem = false;
-    Serial.println("\n> ESP1 Ouviu: " + mensagemRecebida);
+    // Copia o buffer da ISR para a string de forma segura fora da interrupção
+    mensagemRecebida = String(_bufferISR);
+    // Filtra caracteres não imprimíveis que possam ter vindo por ruído de rádio
+    String mensagemLimpa = "";
+    for (int i = 0; i < (int)mensagemRecebida.length(); i++) {
+      char c = mensagemRecebida[i];
+      if (c >= 32 && c < 127) mensagemLimpa += c;
+    }
+    mensagemLimpa.trim();
+    if (mensagemLimpa.length() == 0) return;
 
-    String respostaIA = enviarParaGemini(mensagemRecebida);
+    Serial.println("\n> ESP1 Ouviu: " + mensagemLimpa);
+
+    String respostaIA = enviarParaGroq(mensagemLimpa);
 
     if (respostaIA != "") {
       
@@ -130,9 +156,8 @@ void loop() {
       // Toca o áudio da fala humana via OpenAI de forma nativa e leve
       respostaIA.trim();
       if (respostaIA.length() > 0) {
-        Serial.println("> Gemini Respondeu: " + respostaIA);
-        
-        // Desativa a conexão segura estrita temporariamente para o áudio fluir rápido
+        Serial.println("> Groq Respondeu: " + respostaIA);
+        // Desativa a conexao segura estrita temporariamente para o audio fluir rapido
         audio.openai_speech(String(openAiKey), "tts-1", respostaIA, "alloy", "mp3", "1.0");
       }
     }
