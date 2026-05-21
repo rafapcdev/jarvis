@@ -1,261 +1,435 @@
 <div align="center">
 
-<img src="img/logo.png" alt="DAZI-AI Logo" width="200"/>
+<img src="img/logo.png" alt="JARVIS Logo" width="200"/>
 
-# 🤖 DAZI-AI
+# 🤖 JARVIS — Assistente de Voz com IA Local
 
 [![Arduino](https://img.shields.io/badge/Arduino-ESP32-blue.svg)](https://github.com/arduino/arduino-esp32)
+[![Branch](https://img.shields.io/badge/Branch-GROCK--IA--1.0V-orange.svg)](https://github.com/rafapcdev/jarvis/tree/GROCK-IA-1.0V)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-ESP32-red.svg)](https://www.espressif.com/)
+[![IA](https://img.shields.io/badge/IA-Groq%20%7C%20Llama%203.3-blueviolet.svg)](https://groq.com)
 
-**Serverless AI Voice Assistant | ESP32 Platform | Pure Arduino Development**
-
-English | [简体中文](./README_CN.md)
-
-</div>
-
-## 📷 Hardware & Tutorials
-
-<div align="center">
-
-| Breadboard Version | M5CoreS3 Version |
-|:------------------:|:----------------:|
-| <img src="img/dazi-breadboard.jpg" alt="Breadboard Version" width="300"/> | <img src="img/dazi-m5.png" alt="M5CoreS3 Version" width="300"/> |
-| [📺 YouTube Tutorial](https://www.youtube.com/watch?v=bXd6o99LcDA) | [📺 YouTube Tutorial](https://www.youtube.com/watch?v=KxlHjt9SkPY) |
+**Assistente de voz serverless com dois ESP32 comunicando por rádio (ESP-NOW), IA gratuita via Groq e reconhecimento de voz via microfone I2S.**
 
 </div>
 
-## ✨ Table of Contents
+---
 
-- [Project Introduction](#-project-introduction)
-- [Key Features](#-key-features)
-- [System Architecture](#-system-architecture)
-- [Code Description](#-code-description)
-- [Hardware Requirements](#-hardware-requirements)
-- [Quick Start](#-quick-start)
-- [Example Projects](#-example-projects)
-- [Community](#-community)
+## 📋 Índice
 
-## 📝 Project Introduction
+- [Visão Geral](#-visão-geral)
+- [Arquitetura do Sistema](#-arquitetura-do-sistema)
+- [Hardware Necessário](#-hardware-necessário)
+- [Ligações dos Pinos](#-ligações-dos-pinos)
+- [Configuração Rápida](#-configuração-rápida)
+- [Como Usar](#-como-usar)
+- [Dificuldades Superadas](#-dificuldades-superadas-e-soluções)
+- [Estrutura do Projeto](#-estrutura-do-projeto)
 
-DAZI-AI is a serverless AI voice assistant developed entirely on the ESP32 platform using the Arduino environment. It allows you to run AI voice interactions directly on ESP32 devices without the need for additional server support. The system provides complete voice interaction capabilities including speech recognition, AI processing, and text-to-speech output.
+---
 
-## 🚀 Key Features
+## 🧠 Visão Geral
 
-✅ **Serverless Design**:
-- More flexible secondary development
-- Higher degree of freedom (customize prompts or models)
-- Simpler deployment (no additional server required)
+O JARVIS é um assistente de voz distribuído entre **dois ESP32**, onde cada um tem uma responsabilidade exclusiva:
 
-✅ **Complete Voice Interaction**:
-- Voice input via INMP441 microphone
-- Real-time speech recognition using ByteDance ASR API
-- AI processing through OpenAI API
-- Voice output via MAX98357A I2S audio amplifier
+- **ESP1 (Ouvido)** — grava a voz do utilizador pelo microfone I2S, converte o áudio em texto via API Groq (Whisper) e envia o texto pelo rádio interno do ESP32 usando o protocolo **ESP-NOW** (sem precisar de internet entre eles).
+- **ESP2 (Cérebro + Boca)** — recebe o texto via rádio, consulta o modelo de linguagem **Llama 3.3 (Groq)** para gerar a resposta e fala a resposta em voz alta via alto-falante I2S.
 
-✅ **Continuous Conversation Mode**:
-- Automatic speech recognition with VAD (Voice Activity Detection)
-- Seamless ASR → LLM → TTS conversation loop
-- Configurable conversation memory to maintain context
-- One-button control to start/stop continuous mode
+> 💡 **Alternativa ao microfone:** enquanto o microfone físico não está disponível, é possível digitar perguntas diretamente no **Monitor Serial** do ESP1 e enviá-las ao ESP2.
 
-✅ **One-Click Voice Cloning & Custom Voice Design**:
-- Web-based one-click voice cloning at [steb2.com](https://steb2.com)
-- Create and customize unique AI voice personas
-- Easy configuration through web interface
+---
 
-<div align="center">
-<img src="img/onebuttonclone.png" alt="One-Click Voice Cloning" width="600"/>
+## 🏗️ Arquitetura do Sistema
 
-*Voice cloning configuration at [steb2.com](https://steb2.com)*
-</div>
-
-
-## 🔧 System Architecture
-
-The system uses a modular design with the following key components:
-- **Voice Input**: INMP441 microphone with I2S interface
-- **Speech Recognition**: ByteDance ASR API for real-time transcription
-- **AI Processing**: OpenAI ChatGPT API for conversation with memory support
-- **Voice Output**: MAX98357A I2S audio amplifier for TTS playback
-- **Connectivity**: WiFi for API communication
-
-### Two Conversation Modes
-1. **Push-to-Talk Mode** (examples/chat): Hold button to record, release to process
-2. **Continuous Conversation Mode** (examples/chat_asr): Automatic ASR with VAD, seamless conversation loop
-
-## 💻 Code Description
-
-### DAZI-AI Library
-A unified Arduino library that integrates all necessary components for AI voice assistant development.
-
-| Feature | Description |
-|---------|-------------|
-| ChatGPT Communication | Communicates with OpenAI API, handles requests and responses |
-| Conversation Memory | Maintains conversation history for context-aware responses |
-| TTS | Text-to-Speech functionality, converts AI replies to voice |
-| STT | Speech-to-Text functionality, converts user input to text |
-| Real-time ASR | ByteDance ASR integration with WebSocket protocol for streaming recognition |
-| VAD | Voice Activity Detection for automatic speech detection and silence handling |
-| Audio Processing | Processes and converts audio data formats (modified ESP32-audioI2S) |
-| Audio Playback | I2S audio output with support for multiple codecs (MP3, AAC, FLAC, Opus, Vorbis) |
-
-### Code Structure
 ```
-DAZI-AI/
-├── library.properties            # Arduino library configuration
-├── keywords.txt                  # Syntax highlighting keywords
-├── README.md                     # Documentation
-├── src/                          # All source code
-│   ├── ArduinoGPTChat.cpp        # ChatGPT & TTS implementation
-│   ├── ArduinoGPTChat.h          # ChatGPT & TTS header
-│   ├── ArduinoASRChat.cpp        # Real-time ASR implementation
-│   ├── ArduinoASRChat.h          # Real-time ASR header
-│   ├── Audio.cpp                 # Modified ESP32-audioI2S library
-│   ├── Audio.h                   # Audio library header
-│   ├── aac_decoder/              # AAC audio decoder
-│   ├── flac_decoder/             # FLAC audio decoder
-│   ├── mp3_decoder/              # MP3 audio decoder
-│   ├── opus_decoder/             # Opus audio decoder
-│   └── vorbis_decoder/           # Vorbis audio decoder
-└── examples/                     # Example projects
-    ├── chat/                     # Push-to-talk voice chat example
-    │   └── chat.ino              # Push-to-talk mode with INMP441
-    └── chat_asr/                 # Continuous conversation example
-        └── chat_asr.ino          # ASR-based continuous mode with memory
+┌──────────────────────────────────────────────────────┐
+│                     UTILIZADOR                       │
+│           Fala ou digita no Monitor Serial           │
+└──────────────────┬───────────────────────────────────┘
+                   │
+                   ▼
+┌──────────────────────────────────────────────────────┐
+│              ESP1 — "OUVIDO"                         │
+│                                                      │
+│  • Microfone I2S (INMP441)                           │
+│  • Grava áudio ao pressionar botão BOOT              │
+│  • Envia áudio → API Groq/Whisper (STT)              │
+│  • OU lê texto digitado no Monitor Serial            │
+│  • Transmite texto via ESP-NOW (rádio 2.4GHz)        │
+└──────────────────┬───────────────────────────────────┘
+                   │  ESP-NOW (sem internet, rádio direto)
+                   ▼
+┌──────────────────────────────────────────────────────┐
+│              ESP2 — "CÉREBRO + BOCA"                 │
+│                                                      │
+│  • Recebe texto via ESP-NOW                          │
+│  • Envia para Groq API → Llama 3.3-70b               │
+│  • Resposta em até 20 palavras                       │
+│  • Controle de Ar Condicionado via IR (opcional)     │
+│  • Sintetiza voz via OpenAI TTS → Alto-falante I2S   │
+└──────────────────────────────────────────────────────┘
 ```
 
-## 🔌 Hardware Requirements
+### APIs Utilizadas
 
-### Recommended Hardware
-- **Controller**: ESP32 development board (ESP32-S3 recommended)
-- **Audio Amplifier**: MAX98357A or similar I2S amplifier
-- **Microphone**: INMP441 I2S MEMS microphone
-- **Speaker**: 4Ω 3W speaker or headphones
+| API | Função | Plano | Limite Gratuito |
+|-----|--------|-------|-----------------|
+| [Groq](https://groq.com) | Chat IA (Llama 3.3-70b) | Gratuito | 14.400 req/dia |
+| [Groq Whisper](https://groq.com) | Fala → Texto (STT) | Gratuito | incluído |
+| [OpenAI TTS](https://platform.openai.com) | Texto → Voz (TTS) | Pago | conforme uso |
 
-### INMP441 Pin Connections
+---
 
-| INMP441 Pin | ESP32 Pin | Description |
-|-------------|-----------|-------------|
-| VDD | 3.3V | Power (DO NOT use 5V!) |
-| GND | GND | Ground |
-| L/R | GND | Left channel select |
-| WS | GPIO 4 | Left/Right clock |
-| SCK | GPIO 5 | Serial clock |
-| SD | GPIO 6 | Serial data |
+## 🔌 Hardware Necessário
 
-### MAX98357A  I2S Audio Output Pin Connections
+### ESP1 — Ouvido
+| Componente | Modelo | Observação |
+|---|---|---|
+| Microcontrolador | ESP32 DevKit V1 | Qualquer variante com WiFi |
+| Microfone | INMP441 | Interface I2S, alimentação 3.3V |
 
-| Function | ESP32 Pin | Description |
-|----------|-----------|-------------|
-| I2S_DOUT | GPIO 47 | Audio data output |
-| I2S_BCLK | GPIO 48 | Bit clock |
-| I2S_LRC | GPIO 45 | Left/Right clock |
+### ESP2 — Cérebro + Boca
+| Componente | Modelo | Observação |
+|---|---|---|
+| Microcontrolador | ESP32 DevKit V1 | Qualquer variante com WiFi |
+| Amplificador I2S | MAX98357A | Saída mono, até 3W |
+| Alto-falante | 4Ω / 3W | Qualquer alto-falante compatível |
+| Emissor IR | LED IR 38kHz | Opcional — para controle de ar-condicionado |
 
-## 🚀 Quick Start
+---
 
-1. **Environment Setup**
-   - Install [Arduino IDE](https://www.arduino.cc/en/software) (version 2.0+ recommended)
-   - Install ESP32 board support in Arduino IDE:
-     - Go to `File` → `Preferences`
-     - Add ESP32 board manager URL: `https://espressif.github.io/arduino-esp32/package_esp32_index.json`
-     - Go to `Tools` → `Board` → `Boards Manager`
-     - Search for "ESP32" and install "esp32 by Espressif Systems"
+## 🔧 Ligações dos Pinos
 
-2. **Library Installation via ZIP**
+### ESP1 — Microfone INMP441
 
-   **Method 1: Direct ZIP Installation (Recommended)**
-   - Download or create a ZIP file of the entire `DAZI-AI` folder
-   - Ensure the ZIP file structure has `library.properties` at the root level
-   - Open Arduino IDE
-   - Go to `Sketch` → `Include Library` → `Add .ZIP Library...`
-   - Select the `DAZI-AI.zip` file
-   - Wait for installation to complete
+| Pino INMP441 | Pino ESP32 | Função |
+|---|---|---|
+| VDD | 3.3V | Alimentação (NUNCA use 5V!) |
+| GND | GND | Terra |
+| L/R | GND | Seleciona canal esquerdo |
+| WS | GPIO 25 | Left/Right Clock |
+| SCK | GPIO 32 | Serial Clock |
+| SD | GPIO 33 | Serial Data |
 
-   **Method 2: Manual Installation**
-   - Copy the entire `DAZI-AI` folder to your Arduino libraries directory:
-     - Windows: `Documents\Arduino\libraries\`
-     - macOS: `~/Documents/Arduino/libraries/`
-     - Linux: `~/Arduino/libraries/`
-   - Restart Arduino IDE
+> O pino BOOT (GPIO 0) é usado para iniciar/parar a gravação de voz.
 
-3. **Install Required Dependencies**
-   - Open Arduino IDE Library Manager (`Tools` → `Manage Libraries...`)
-   - Search and install the following libraries:
-     - **ArduinoWebsocket** (v0.5.4)
-     - **ArduinoJson** (v7.4.1)
-     - **Seeed_Arduino_mbedtls** (v3.0.2)
+### ESP2 — Amplificador MAX98357A
 
-4. **API Key Configuration**
+| Função | Pino ESP32 | Descrição |
+|---|---|---|
+| I2S_DOUT | GPIO 22 | Dados de áudio |
+| I2S_BCLK | GPIO 26 | Bit Clock |
+| I2S_LRC | GPIO 27 | Left/Right Clock |
 
-   **For Push-to-Talk Mode** (`examples/chat/chat.ino`):
-   - Replace `"your-api-key"` with your actual OpenAI API key
-   - Replace `"your-wifi-ssid"` and `"your-wifi-password"` with your WiFi credentials
-   - Optionally modify the system prompt to customize AI behavior
+### ESP2 — LED Emissor IR (Opcional)
 
-   **For Continuous Conversation Mode** (`examples/chat_asr/chat_asr.ino`):
-   - Replace `"your-bytedance-asr-api-key"` with your ByteDance ASR API key (line 37)
-   - Replace `"your-openai-api-key"` with your OpenAI API key (line 41)
-   - Replace WiFi credentials (lines 33-34)
-   - Set `ENABLE_CONVERSATION_MEMORY` to 1 to enable memory or 0 to disable (line 7)
-   - Optionally modify the system prompt to customize AI personality (lines 81-104)
+| Função | Pino ESP32 |
+|---|---|
+| IR OUT | GPIO 4 |
 
-5. **Hardware Wiring**
-   - Connect INMP441 microphone according to pin table above
-   - Connect MAX98357A I2S audio amplifier for speaker output
+---
 
-6. **Open Example Projects**
-   - After installing the library, examples will be available in Arduino IDE
-   - Go to `File` → `Examples` → `DAZI-AI`
-   - Choose either:
-     - **chat**: Push-to-talk mode example
-     - **chat_asr**: Continuous conversation mode example
+## ⚙️ Configuração Rápida
 
-7. **Compile and Upload**
-   - Select the appropriate ESP32 development board
-     - This project has been tested on ESP32S3 Dev Module and XIAO ESP32S3
-     - Requirements: Flash Size >8M and PSRAM >4Mb
-   - In Arduino IDE, configure board settings:
-     - Partition Scheme: Select "8M with spiffs"
-     - PSRAM: Select "OPI PSRAM"
-   - Compile and upload the code to your device
+### 1. Instale a biblioteca no Arduino IDE
 
-8. **Testing**
-   - Open the serial monitor (115200 baud)
-   - Wait for WiFi connection
-   - Hold the BOOT button on your ESP32 to start recording
-   - Speak your question or command while holding the button
-   - Release the button to send the recording to ChatGPT
-   - Listen to the AI response through your connected speaker
+Copie a pasta do projeto para o diretório de bibliotecas do Arduino:
 
-## 📚 Example Projects
+```
+Linux:   ~/Arduino/libraries/jarvis/
+Windows: Documents\Arduino\libraries\jarvis\
+macOS:   ~/Documents/Arduino/libraries/jarvis/
+```
 
-### Main Programs (Recommended)
+### 2. Configure o arquivo `env.h`
 
-| Version | Example | Description |
-|---------|---------|-------------|
-| **Breadboard** | `examples/chat_configurable` | Breadboard version with website one-click API configuration |
-| **M5CoreS3** | `examples/chat_configurable_m5cores3` | M5CoreS3 version with website one-click API configuration |
+> ⚠️ O arquivo `env.h` está protegido pelo `.gitignore` — suas chaves nunca vão para o repositório.
 
-These main programs support easy configuration through a web interface - no need to modify code for API keys!
+Edite o arquivo em `/home/dev/Arduino/libraries/jarvis/env.h` (ou no diretório global `/home/dev/Arduino/libraries/env/env.h`):
 
-### Legacy Version
+```c
+#ifndef ENV_H
+#define ENV_H
 
-| Example | Description |
-|---------|-------------|
-| `examples/chat_asr` | Original version requiring manual API key configuration in code |
+#define ENV_WIFI_SSID       "SEU_WIFI_AQUI"
+#define ENV_WIFI_PASSWORD   "SUA_SENHA_AQUI"
+#define ENV_GEMINI_API_KEY  "SUA_CHAVE_GEMINI"
+#define ENV_GROQ_API_KEY    "SUA_CHAVE_GROQ"
+#define ENV_OPENAI_API_KEY  "SUA_CHAVE_OPENAI"
 
-## 💬 Community
+#endif
+```
 
-Join our Discord community to share development experiences, ask questions, and collaborate with other developers:
+Como obter as chaves gratuitas:
+- **Groq**: https://console.groq.com → API Keys → Create API Key
+- **Gemini** (opcional): https://aistudio.google.com/apikey
+- **OpenAI** (TTS): https://platform.openai.com/api-keys
 
-[![Discord](https://img.shields.io/badge/Discord-Join%20Community-7289da?style=for-the-badge&logo=discord&logoColor=white)](https://discord.com/invite/GefSMJzwQ3)
+### 3. Configure o MAC Address do ESP2 no ESP1
 
-**Discord Server**: https://discord.com/invite/GefSMJzwQ3
+Descubra o MAC Address do ESP2 abrindo o Monitor Serial dele após o boot. Em seguida, edite o `esp1_ouvido.ino`:
+
+```cpp
+// linha 23
+uint8_t enderecoESP2[] = {0x78, 0x1C, 0x3C, 0xDC, 0x4E, 0x70}; // <-- substitua pelo MAC do seu ESP2
+```
+
+### 4. Instale as dependências
+
+No Arduino IDE, vá em `Ferramentas → Gerenciar Bibliotecas` e instale:
+
+- **ArduinoJson** (v7+)
+- **IRremoteESP8266** (para controle IR no ESP2)
+
+### 5. Faça o Upload
+
+- Abra `examples/esp1_ouvido/esp1_ouvido.ino` → selecione a porta do **ESP1** → **Upload**
+- Abra `examples/esp2_cerebro/esp2_cerebro.ino` → selecione a porta do **ESP2** → **Upload**
+
+---
+
+## 🕹️ Como Usar
+
+### Modo 1 — Botão físico (microfone I2S)
+1. Mantenha o botão **BOOT** do ESP1 pressionado para gravar
+2. Fale sua pergunta ou comando
+3. Solte o botão — o ESP1 envia o áudio para a Groq (Whisper)
+4. O texto transcrito é enviado via rádio ESP-NOW ao ESP2
+5. O ESP2 consulta o Llama 3.3, gera a resposta e fala em voz alta
+
+### Modo 2 — Monitor Serial (sem microfone)
+1. Abra o Monitor Serial do **ESP1** a **115200 baud**
+2. Configure o fim de linha para **NL (Newline)**
+3. Digite sua pergunta e pressione **Enter**
+4. O texto é enviado via ESP-NOW ao ESP2 que responde normalmente
+
+### Comandos de Ar Condicionado (ESP2)
+O assistente reconhece intenções nos textos e aciona o LED IR automaticamente:
+
+| Fala / Texto | Ação |
+|---|---|
+| "Liga o ar" | Envia código IR `[AR_ON]` |
+| "Desliga o ar" | Envia código IR `[AR_OFF]` |
+| "Sobe a temperatura" | Envia código IR `[AR_TEMP_UP]` |
+| "Desce a temperatura" | Envia código IR `[AR_TEMP_DOWN]` |
+
+---
+
+## 🧩 Dificuldades Superadas e Soluções
+
+Durante o desenvolvimento desta versão (`GROCK-IA-1.0V`), vários problemas técnicos foram identificados e resolvidos. Esta seção documenta cada um deles para ajudar outros desenvolvedores.
+
+---
+
+### 🔴 Problema 1 — ESP32 travando na conexão WiFi
+
+**Sintoma:**
+```
+[ESP1] Iniciando Ouvido...
+..........................(infinito)
+```
+
+**Causa:**
+O código ficava preso no laço `while (WiFi.status() != WL_CONNECTED)` porque as credenciais WiFi no arquivo `env.h` estavam desatualizadas (apontando para a rede `"Robotica"` em vez da rede atual). Como existem **três cópias** do `env.h` no projeto (raiz, `src/`, e na pasta global de bibliotecas do Arduino), o compilador usava a versão errada.
+
+**Solução:**
+Identificamos que o Arduino IDE prioriza o `env.h` dentro da pasta `src/` da biblioteca durante a compilação. Todos os três arquivos foram sincronizados com as credenciais corretas, e foi criado um processo de verificação para garantir que as três cópias estejam sempre alinhadas.
+
+---
+
+### 🔴 Problema 2 — Mensagem ESP-NOW corrompida (`yq^@p^@`)
+
+**Sintoma:**
+```
+> ESP1 Ouviu: yq^@p^@
+```
+
+**Causa:**
+O callback `aoReceberDados()` do ESP-NOW **roda dentro de uma interrupção de hardware (ISR)**. No código original, a conversão `String(buffer)` era feita dentro da ISR — o tipo `String` do Arduino usa `malloc` internamente, o que é proibido em contexto de interrupção no ESP32 e causa corrupção de memória.
+
+**Solução:**
+O callback passou a apenas **copiar os bytes brutos para um buffer estático global** (`static char _bufferISR[250]`) e setar uma flag. A conversão para `String`, a filtragem de caracteres e o envio à API são feitos no `loop()`, fora da interrupção:
+
+```cpp
+// Dentro da ISR — APENAS cópia de bytes (seguro)
+void aoReceberDados(const esp_now_recv_info_t *info, const uint8_t *dados, int tamanho) {
+  if (tamanho > 249) tamanho = 249;
+  memcpy(_bufferISR, dados, tamanho);
+  _bufferISR[tamanho] = '\0';
+  temNovaMensagem = true;
+}
+
+// No loop() — conversão e processamento seguros
+if (temNovaMensagem) {
+  temNovaMensagem = false;
+  mensagemRecebida = String(_bufferISR); // seguro aqui
+  ...
+}
+```
+
+---
+
+### 🔴 Problema 3 — HTTP -1 (falha silenciosa no handshake SSL)
+
+**Sintoma:**
+```
+[Gemini] Erro HTTP: -1
+```
+
+**Causa:**
+O `WiFiClientSecure` sem timeout definido pode abortar o handshake TLS silenciosamente no ESP32, retornando `-1` sem mensagem de erro. Isso ocorre porque o handshake SSL pode exceder o tempo de espera padrão com servidores mais lentos.
+
+**Solução:**
+Adicionados timeouts explícitos antes de cada requisição:
+
+```cpp
+client.setHandshakeTimeout(10); // 10 segundos para o handshake TLS
+http.setTimeout(10000);         // 10 segundos para a resposta HTTP
+```
+
+---
+
+### 🔴 Problema 4 — Erro 404 na API Gemini
+
+**Sintoma:**
+```
+Erro na conexao com o Gemini: 404
+```
+
+**Causa:**
+O modelo `gemini-1.5-flash` foi descontinuado no endpoint `v1beta`. A URL com o nome antigo do modelo retornava 404 (não encontrado).
+
+**Solução:**
+Atualizado para o modelo atual e mais eficiente:
+
+```cpp
+// Antes (descontinuado):
+"https://...models/gemini-1.5-flash:generateContent"
+
+// Depois (atual):
+"https://...models/gemini-2.0-flash-lite:generateContent"
+```
+
+---
+
+### 🔴 Problema 5 — Erro 429 persistente no Gemini (quota esgotada)
+
+**Sintoma:**
+```
+[Gemini] Rate limit (429). Aguardando 5s... (tentativa 1/3)
+[Gemini] Rate limit (429). Aguardando 5s... (tentativa 2/3)
+[Gemini] Rate limit (429). Aguardando 5s... (tentativa 3/3)
+[Gemini] Falhou apos 3 tentativas.
+```
+
+**Causa:**
+A chave Gemini usada pertencia a uma conta Google diferente da conta logada no AI Studio. O dashboard mostrava **zero requisições**, confirmando que as chamadas nunca chegavam à conta correta. Mesmo ao usar a chave da conta correta, a conta tinha **billing ativado sem saldo**, o que desativa o tier gratuito e bloqueia todas as requisições.
+
+**Solução:**
+Migração completa do backend de IA do **Gemini para a Groq API**, que oferece:
+- Acesso ao modelo **Llama 3.3-70b** (qualidade equivalente ao GPT-4)
+- **14.400 requisições por dia** no plano gratuito
+- **30 requisições por minuto** (dobro do Gemini free)
+- Sem necessidade de cartão de crédito
+
+---
+
+### 🔴 Problema 6 — JSON malformado na requisição Gemini
+
+**Sintoma:** Erros 400 ou respostas inesperadas da API.
+
+**Causa:**
+O campo `parts` do `system_instruction` estava formatado como **objeto JSON** `{}` quando a API exige um **array** `[]`:
+
+```json
+// Errado:
+"system_instruction": {"parts": {"text": "..."}}
+
+// Correto:
+"system_instruction": {"parts": [{"text": "..."}]}
+```
+
+**Solução:**
+Corrigido o payload da requisição e adicionado log do corpo da resposta de erro para facilitar diagnósticos futuros.
+
+---
+
+### 🔴 Problema 7 — Chaves de API expostas bloqueando o push para o GitHub
+
+**Sintoma:**
+```
+remote: - GITHUB PUSH PROTECTION
+remote: Push cannot contain secrets
+remote: —— OpenAI API Key / Groq API Key ——
+```
+
+**Causa:**
+O GitHub tem um sistema de **Secret Scanning** que bloqueia automaticamente pushes contendo chaves de API hardcoded no código-fonte, mesmo em branches privadas.
+
+**Solução:**
+Todas as chaves foram movidas para o arquivo `env.h` que está listado no `.gitignore`. O código-fonte usa apenas os defines:
+
+```cpp
+// No código (público, vai para o GitHub):
+const char* groqKey = ENV_GROQ_API_KEY;
+
+// No env.h (privado, nunca vai para o GitHub):
+#define ENV_GROQ_API_KEY "gsk_..."
+```
+
+---
+
+## 📁 Estrutura do Projeto
+
+```
+jarvis/
+├── .gitignore                        # Protege env.h e .env
+├── env.h                             # ⚠️ Chaves locais (NÃO vai ao GitHub)
+├── README.md                         # Esta documentação
+├── library.properties                # Configuração da biblioteca Arduino
+├── keywords.txt                      # Palavras-chave para syntax highlight
+│
+├── src/                              # Código-fonte da biblioteca
+│   ├── env.h                         # ⚠️ Cópia local das chaves
+│   ├── ArduinoGPTChat.cpp/.h         # Comunicação com APIs de chat e STT
+│   ├── ArduinoASRChat.cpp/.h         # Reconhecimento de voz em tempo real
+│   ├── ArduinoTTSChat.cpp/.h         # Texto para voz
+│   ├── ArduinoMinimaxTTS.cpp/.h      # TTS via Minimax
+│   ├── ArduinoRealtimeDialog.cpp/.h  # Diálogo em tempo real
+│   ├── Audio.cpp/.h                  # Biblioteca de áudio I2S modificada
+│   ├── I2SAudioPlayer.cpp/.h         # Player de áudio I2S
+│   └── [aac/flac/mp3/opus/vorbis]_decoder/  # Decodificadores de áudio
+│
+└── examples/
+    ├── esp1_ouvido/
+    │   └── esp1_ouvido.ino           # ESP1: Microfone + STT + ESP-NOW TX
+    ├── esp2_cerebro/
+    │   └── esp2_cerebro.ino          # ESP2: ESP-NOW RX + Groq IA + TTS + IR
+    └── chat/
+        └── chat.ino                  # Exemplo básico de chat
+```
+
+---
+
+## 🔑 Variáveis do `env.h`
+
+| Define | Descrição | Onde obter |
+|--------|-----------|------------|
+| `ENV_WIFI_SSID` | Nome da rede WiFi | — |
+| `ENV_WIFI_PASSWORD` | Senha da rede WiFi | — |
+| `ENV_GROQ_API_KEY` | Chave da Groq (IA + STT) | [console.groq.com](https://console.groq.com) |
+| `ENV_GEMINI_API_KEY` | Chave do Gemini (opcional) | [aistudio.google.com](https://aistudio.google.com/apikey) |
+| `ENV_OPENAI_API_KEY` | Chave OpenAI (TTS de voz) | [platform.openai.com](https://platform.openai.com/api-keys) |
 
 ---
 
 <div align="center">
-  <b>Open source collaboration for shared progress!</b><br>
-  If you find this project helpful, please give it a ⭐️
+
+**Desenvolvido com muito debug e café ☕**
+
+Se este projeto te ajudou, deixa uma ⭐️ no repositório!
+
+[🐛 Reportar Bug](https://github.com/rafapcdev/jarvis/issues) · [💡 Sugerir Feature](https://github.com/rafapcdev/jarvis/issues)
+
 </div>
