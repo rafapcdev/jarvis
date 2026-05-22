@@ -25,6 +25,7 @@
 - [Ligações dos Pinos](#-ligações-dos-pinos)
 - [Configuração Rápida](#-configuração-rápida)
 - [Como Usar](#-como-usar)
+- [Testes](#-testes)
 - [Dificuldades Superadas](#-dificuldades-superadas-e-soluções)
 - [Estrutura do Projeto](#-estrutura-do-projeto)
 
@@ -379,6 +380,152 @@ const char* groqKey = ENV_GROQ_API_KEY;
 
 ---
 
+## 🧪 Testes
+
+O projeto inclui dois tipos de testes para validar o sistema sem precisar do hardware completo montado.
+
+### Estratégia de Testes em Três Camadas
+
+| Camada | Arquivo | Precisa de hardware? | O que valida |
+|--------|---------|---------------------|--------------|
+| **Unitário** | `testes_unitarios.ino` | ❌ Nenhum (só o ESP32) | Lógica das funções internas |
+| **Integração** | `teste_de_software.ino` | ✅ Só Wi-Fi | APIs externas (Groq + TTS) |
+| **Sistema completo** | `esp1` + `esp2` | ✅ Dois ESP32 + hardware | Fluxo end-to-end |
+
+---
+
+### 🔬 Testes Unitários (`examples/testes_unitarios/`)
+
+Testam as funções de lógica pura do sistema usando **dados falsos (mocks)** que simulam o que os sistemas externos enviariam. Não fazem nenhuma conexão de rede.
+
+**Como rodar:** grave o arquivo em qualquer ESP32, abra o Monitor Serial (115200 baud). O teste roda automaticamente e exibe o relatório.
+
+**Funções testadas:**
+
+| Função | O que faz | Casos testados |
+|--------|-----------|----------------|
+| `filtrarMensagem()` | Remove ruídos e bytes de controle do ESP-NOW | Quebra de linha, bytes corrompidos, espaços, acentos UTF-8 |
+| `extrairRespostaGroq()` | Faz o parse do JSON retornado pela API Groq | JSON válido, escape `\n`, JSON inválido, campo vazio |
+| `contemComando()` | Detecta tags de comando na resposta da IA | `[AR_ON]`, `[AR_OFF]`, ausência de tag |
+| `removerComando()` | Remove a tag da resposta antes de enviar ao TTS | Tag no início, no fim, e no meio da frase |
+
+**Exemplo de saída esperada:**
+```
+=== TESTES UNITÁRIOS - JARVIS ESP32 ===
+
+--- [Grupo 1] Filtro de Mensagem ESP-NOW ---
+[PASS] filtrarMensagem: remove quebra de linha
+[PASS] filtrarMensagem: remove bytes de controle (ruído de rádio)
+[PASS] filtrarMensagem: remove espaços nas pontas
+[PASS] filtrarMensagem: string vazia
+[PASS] filtrarMensagem: preserva acentos do Português (UTF-8)
+
+--- [Grupo 2] Extração de JSON da Groq ---
+[PASS] extrairRespostaGroq: JSON valido padrao
+[PASS] extrairRespostaGroq: substitui \n literal por espaco
+[PASS] extrairRespostaGroq: JSON invalido retorna string vazia
+[PASS] extrairRespostaGroq: content vazio retorna string vazia
+
+--- [Grupo 3] Deteccao e Remocao de Comandos ---
+[PASS] contemComando: detecta AR_ON presente
+[PASS] contemComando: nao detecta AR_ON ausente
+[PASS] contemComando: detecta AR_OFF presente
+[PASS] contemComando: detecta AR_TEMP_UP
+[PASS] removerComando: remove tag do final
+[PASS] removerComando: remove tag do inicio
+[PASS] removerComando: remove tag do meio
+
+===========================================
+RESULTADO: 16 Passaram | 0 Falharam
+>>> TODOS OS TESTES PASSARAM! Sistema OK. <<<
+===========================================
+```
+
+#### 🐛 Bug descoberto pelos testes unitários
+
+Durante a criação dos testes unitários foi descoberto um **bug real de produção** na função `filtrarMensagem()` que afetaria o sistema com palavras acentuadas do Português.
+
+**Causa:** O filtro original bloqueava bytes com valor > 126, mas caracteres UTF-8 acentuados (`á`, `ç`, `ã`, `õ`) usam bytes no intervalo 128–255. A palavra `"ação"` chegaria como `"ao"` no ESP2.
+
+```cpp
+// BUG (código original) — corta acentos do Português:
+if (c >= 32 && c < 127) { ... }
+
+// CORREÇÃO — remove apenas bytes de controle, preserva UTF-8:
+uint8_t c = (uint8_t)mensagemRecebida[i];
+if (c >= 32 && c != 127) { ... }
+```
+
+O mesmo fix foi aplicado na função de produção do `esp2_cerebro.ino`.
+
+#### 🐛 Segundo bug descoberto: espaço duplo após remoção de tag
+
+Ao remover uma tag de comando do meio de uma frase (`"Ok. [AR_TEMP_UP] Feito."`), a função deixava dois espaços consecutivos (`"Ok.  Feito."`), que causariam uma pausa estranha no TTS.
+
+```cpp
+// CORREÇÃO — normaliza espaços duplos após remoção da tag:
+String removerComando(String resposta, String comando) {
+  resposta.replace(comando, "");
+  while (resposta.indexOf("  ") != -1) {
+    resposta.replace("  ", " ");  // colapsa espaços duplos
+  }
+  resposta.trim();
+  return resposta;
+}
+```
+
+---
+
+### 🌐 Teste de Integração (`examples/teste_de_software/`)
+
+Testa o fluxo completo de rede do ESP2 com um único ESP32 ligado ao computador — sem microfone, sem alto-falante, sem o ESP1.
+
+**Como rodar:** grave no ESP32 que será o **ESP2**, abra o Monitor Serial (115200 baud).
+
+**O que é testado:**
+1. Conexão Wi-Fi e obtenção de IP
+2. Chamada à API Groq (autenticação, latência, parsing da resposta)
+3. Download e decodificação do áudio Google TTS (conexão HTTPS, stream MP3, buffers)
+
+**Callbacks de diagnóstico definidos:**
+- `audio_info()` — imprime cada etapa interna da biblioteca de áudio (conexão, codec, bitrate)
+- `audio_eof_speech()` — confirma conclusão do download de voz
+- `audio_eof_stream()` — detecta fim de stream de rede
+- Watchdog de **15 segundos** para detectar travamentos silenciosos do TTS
+
+**Saída real obtida durante os testes do projeto:**
+```
+=== TESTE DE INTEGRAÇÃO - JARVIS ===
+[Wi-Fi] Conectado! IP: 192.168.1.x
+[Wi-Fi] Sinal (RSSI): -52 dBm
+[Audio] I2S inicializado em pinos virtuais.
+
+--- [Passo 1] Testando API Groq ---
+[Groq] Enviando pergunta...
+[PASS] Groq respondeu: Sucesso
+
+--- [Passo 2] Testando Google TTS (download de voz) ---
+[Audio] PSRAM not found, inputBufferSize: 14335 bytes
+[Audio] buffers freed, free Heap: 132252 bytes
+[Audio] connect to "translate.google.com.vn"
+[Audio] chunked data transfer
+[Audio] MP3Decoder has been initialized, free Heap: 97116 bytes
+[Audio] Audio-Length: 13248
+[Audio] SampleRate: 24000, Channels: 1, BitRate: 64000
+[Audio] End of speech "Teste de voz."
+[TTS] Download e decodificação concluídos!
+---------------------------------------------
+[PASS] TTS: Stream processado com sucesso!
+
+=== TODOS OS TESTES PASSARAM ===
+```
+
+> **Nota:** `translate.google.com.vn` é um redirect de CDN do Google — comportamento normal, não indica erro.
+
+> **Nota:** `PSRAM not found` indica que o ESP32 usado não tem PSRAM. Para respostas longas em produção, considere um módulo **ESP32-WROVER** (4MB PSRAM integrada) para evitar picotamento de áudio.
+
+---
+
 ## 📁 Estrutura do Projeto
 
 ```
@@ -405,6 +552,10 @@ jarvis/
     │   └── esp1_ouvido.ino           # ESP1: Microfone + STT + ESP-NOW TX
     ├── esp2_cerebro/
     │   └── esp2_cerebro.ino          # ESP2: ESP-NOW RX + Groq IA + TTS + IR
+    ├── testes_unitarios/
+    │   └── testes_unitarios.ino      # 🧪 Testes de lógica interna (sem rede)
+    ├── teste_de_software/
+    │   └── teste_de_software.ino     # 🌐 Teste de integração (Wi-Fi + APIs)
     └── chat/
         └── chat.ino                  # Exemplo básico de chat
 ```
