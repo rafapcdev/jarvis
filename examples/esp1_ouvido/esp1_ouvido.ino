@@ -8,7 +8,8 @@
 #define I2S_MIC_LEFT_RIGHT_CLOCK 25 
 #define I2S_MIC_SERIAL_DATA 33     
 
-#define BOOT_BUTTON_PIN 0
+#define BOOT_BUTTON_PIN    0   // Botão BOOT interno do ESP32
+#define EXT_BUTTON_PIN     4   // Botão externo: conecte entre GPIO 4 e GND
 #define SAMPLE_RATE 8000
 
 // ----- CONFIGURAÇÕES DA REDE E API -----
@@ -32,6 +33,7 @@ bool wasButtonPressed = false;
 void setup() {
   Serial.begin(115200);
   pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP);
+  pinMode(EXT_BUTTON_PIN,  INPUT_PULLUP); // Botão externo (pull-up interno = sem resistor)
 
   Serial.println("\n[ESP1] Iniciando Ouvido...");
   WiFi.mode(WIFI_STA);
@@ -55,11 +57,12 @@ void setup() {
   gptChat.initializeRecording(I2S_MIC_SERIAL_CLOCK, I2S_MIC_LEFT_RIGHT_CLOCK, I2S_MIC_SERIAL_DATA,
                              SAMPLE_RATE, I2S_MODE_STD, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO, I2S_STD_SLOT_LEFT);
                              
-  Serial.println("[ESP1] Pronto! Segure o botao BOOT para falar.");
+  Serial.println("[ESP1] Pronto! Segure o botao BOOT (GPIO 0) ou o botao externo (GPIO 4) para falar.");
 }
 
 void loop() {
-  buttonPressed = (digitalRead(BOOT_BUTTON_PIN) == LOW);
+  // Qualquer um dos dois botões ativa a gravação
+  buttonPressed = (digitalRead(BOOT_BUTTON_PIN) == LOW) || (digitalRead(EXT_BUTTON_PIN) == LOW);
 
   if (buttonPressed && !wasButtonPressed && !gptChat.isRecording()) {
     Serial.println("\n[ GRAVANDO ] Fale agora...");
