@@ -8,12 +8,13 @@
 #include "FS.h"
 #include "SD.h"
 #include "ESP_I2S.h"
-#include <vector>
+#include <WiFiClientSecure.h>
 
 class ArduinoGPTChat {
   public:
     ArduinoGPTChat(const char* apiKey = nullptr, const char* apiBaseUrl = nullptr);
     void setApiConfig(const char* apiKey = nullptr, const char* apiBaseUrl = nullptr);
+    void setSttModel(const char* model);
     void setSystemPrompt(const char* systemPrompt);
     void enableMemory(bool enable);
     void clearMemory();
@@ -41,12 +42,15 @@ class ArduinoGPTChat {
     String _apiUrl;
     String _ttsApiUrl;
     String _sttApiUrl;
+    String _sttModel;
+    bool _isCustomSttModel = false;
     String _systemPrompt;
     String _buildPayload(String message);
     String _processResponse(String response);
     String _buildTTSPayload(String text);
     String _buildMultipartForm(const char* audioFilePath, String boundary);
     void _updateApiUrls();
+    String _streamSTTRequest(int16_t* samples, size_t numSamples);
 
     // Conversation memory
     bool _memoryEnabled = false;
@@ -59,7 +63,11 @@ class ArduinoGPTChat {
 
     // Recording variables
     I2SClass _recordingI2S;
-    std::vector<int16_t> _audioBuffer;
+    // Buffer de audio com tamanho fixo (sem vector para evitar fragmentacao)
+    int16_t* _audioBuffer    = nullptr;   // buffer alocado em startRecording
+    size_t   _audioCapacity  = 0;         // amostras alocadas
+    size_t   _audioSize      = 0;         // amostras gravadas
+    static const size_t _MAX_RECORD_SECONDS = 4; // limite de gravacao em segundos
     int _sampleRate;
     int _micClkPin, _micWsPin, _micDataPin;
     const int _bufferSize = 512;

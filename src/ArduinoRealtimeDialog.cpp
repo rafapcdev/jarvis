@@ -195,9 +195,9 @@ String ArduinoRealtimeDialog::generateWebSocketKey() {
  */
 String ArduinoRealtimeDialog::generateSessionId() {
   char uuid[37];
-  sprintf(uuid, "%08x-%04x-%04x-%04x-%012x",
-          random(0x100000000), random(0x10000), random(0x10000),
-          random(0x10000), random(0x1000000000000));
+  sprintf(uuid, "%08x-%04x-%04x-%04x-%04x%08x",
+          esp_random(), esp_random() & 0xFFFF, esp_random() & 0xFFFF,
+          esp_random() & 0xFFFF, esp_random() & 0xFFFF, esp_random());
   return String(uuid);
 }
 
@@ -633,7 +633,7 @@ void ArduinoRealtimeDialog::sendFinishConnection() {
  */
 void ArduinoRealtimeDialog::sendStartSession() {
   // Build JSON configuration
-  StaticJsonDocument<1024> doc;
+  JsonDocument doc;
   
   // ASR configuration
   doc["asr"]["extra"]["end_smooth_window_ms"] = 1500;
@@ -1026,7 +1026,7 @@ void ArduinoRealtimeDialog::parseResponse(uint8_t* data, size_t len) {
         }
       } else if (serialization == SERIAL_JSON && payload_len > 0) {
         // Parse JSON data
-        StaticJsonDocument<2048> doc;
+        JsonDocument doc;
         DeserializationError error = deserializeJson(doc, payload, payload_len);
         
         if (!error) {
@@ -1056,7 +1056,7 @@ void ArduinoRealtimeDialog::handleServerEvent(int eventId, JsonObject& payload) 
       
     case EVENT_SESSION_STARTED:
       Serial.println("Session started");
-      if (payload.containsKey("dialog_id")) {
+      if (!payload["dialog_id"].isNull()) {
         _dialogId = payload["dialog_id"].as<String>();
         Serial.println("Dialog ID: " + _dialogId);
       }
@@ -1073,7 +1073,7 @@ void ArduinoRealtimeDialog::handleServerEvent(int eventId, JsonObject& payload) 
       
     case EVENT_ASR_RESPONSE:
       // ASR recognition result
-      if (payload.containsKey("results")) {
+      if (!payload["results"].isNull()) {
         JsonArray results = payload["results"];
         if (results.size() > 0) {
           String text = results[0]["text"].as<String>();
@@ -1103,7 +1103,7 @@ void ArduinoRealtimeDialog::handleServerEvent(int eventId, JsonObject& payload) 
       
     case EVENT_TTS_SENTENCE_START:
       // TTS sentence start
-      if (payload.containsKey("text")) {
+      if (!payload["text"].isNull()) {
         String ttsText = payload["text"].as<String>();
         Serial.println("\n[TTS] Starting playback: " + ttsText);
       } else {
@@ -1151,7 +1151,7 @@ void ArduinoRealtimeDialog::handleServerEvent(int eventId, JsonObject& payload) 
       
     case EVENT_CHAT_RESPONSE:
       // Chat response text
-      if (payload.containsKey("content")) {
+      if (!payload["content"].isNull()) {
         String content = payload["content"].as<String>();
         Serial.print("[Chat] ");
         Serial.println(content);

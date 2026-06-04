@@ -1,6 +1,7 @@
 #include "ArduinoGPTChat.h"
 #include <SPIFFS.h>
 #include <WiFiClientSecure.h>
+#include <env.h>
 
 // Default API configuration - users can modify these values or set their own configuration via setApiConfig()
 const char* DEFAULT_API_KEY = "";
@@ -204,22 +205,22 @@ String ArduinoGPTChat::sendImageMessage(const char* imageFilePath, String questi
   checkFile.close();
   
   // Now build JSON using smaller buffer
-  DynamicJsonDocument doc(2048); // Only need small buffer since Base64 data not included
+  JsonDocument doc; // Only need small buffer since Base64 data not included
   doc["model"] = "gemini1.5-flash";
   doc["messages"] = JsonArray();
-  JsonObject message = doc["messages"].createNestedObject();
+  JsonObject message = doc["messages"].add<JsonObject>();
   message["role"] = "user";
-  JsonArray content = message.createNestedArray("content");
+  JsonArray content = message["content"].to<JsonArray>();
   
   // Add text part
-  JsonObject textPart = content.createNestedObject();
+  JsonObject textPart = content.add<JsonObject>();
   textPart["type"] = "text";
   textPart["text"] = question;
 
   // Add image part
-  JsonObject imagePart = content.createNestedObject();
+  JsonObject imagePart = content.add<JsonObject>();
   imagePart["type"] = "image_url";
-  JsonObject imageUrl = imagePart.createNestedObject("image_url");
+  JsonObject imageUrl = imagePart["image_url"].to<JsonObject>();
 
   // Set placeholder, replace later
   imageUrl["url"] = "PLACEHOLDER_FOR_BASE64_DATA";
@@ -476,6 +477,7 @@ ArduinoGPTChat::ArduinoGPTChat(const char* apiKey, const char* apiBaseUrl) {
   _apiKey = (apiKey != nullptr) ? apiKey : DEFAULT_API_KEY;
   _apiBaseUrl = (apiBaseUrl != nullptr) ? apiBaseUrl : DEFAULT_API_BASE_URL;
   _systemPrompt = "";
+  _isCustomSttModel = false;
   _updateApiUrls();
 }
 
@@ -493,6 +495,13 @@ void ArduinoGPTChat::setApiConfig(const char* apiKey, const char* apiBaseUrl) {
   if (apiBaseUrl != nullptr) {
     _apiBaseUrl = apiBaseUrl;
     _updateApiUrls();
+  }
+}
+
+void ArduinoGPTChat::setSttModel(const char* model) {
+  if (model != nullptr) {
+    _sttModel = model;
+    _isCustomSttModel = true;
   }
 }
 
@@ -542,6 +551,14 @@ void ArduinoGPTChat::_updateApiUrls() {
   _apiUrl = _apiBaseUrl + "/v1/chat/completions";
   _ttsApiUrl = _apiBaseUrl + "/v1/audio/speech";
   _sttApiUrl = _apiBaseUrl + "/v1/audio/transcriptions";
+
+  if (!_isCustomSttModel) {
+    if (_apiBaseUrl.indexOf("groq") >= 0) {
+      _sttModel = "whisper-large-v3-turbo";
+    } else {
+      _sttModel = "whisper-1";
+    }
+  }
 
   // Update global variable used by Audio library
   if(_apiBaseUrl.startsWith("https://")) {
@@ -601,13 +618,13 @@ String ArduinoGPTChat::_buildPayload(String message) {
     bufferSize = 768 + (_conversationHistory.size() * 512);  // Reserve extra space for history
   }
 
-  DynamicJsonDocument doc(bufferSize);
+  JsonDocument doc;
   doc["model"] = "gpt-4.1-nano";
-  JsonArray messages = doc.createNestedArray("messages");
+  JsonArray messages = doc["messages"].to<JsonArray>();
 
   // If system prompt configured, add system message
   if (_systemPrompt.length() > 0) {
-    JsonObject sysMsg = messages.createNestedObject();
+    JsonObject sysMsg = messages.add<JsonObject>();
     sysMsg["role"] = "system";
     sysMsg["content"] = _systemPrompt;
   }
@@ -616,19 +633,19 @@ String ArduinoGPTChat::_buildPayload(String message) {
   if (_memoryEnabled) {
     for (size_t i = 0; i < _conversationHistory.size(); i++) {
       // Add user message from history
-      JsonObject historyUserMsg = messages.createNestedObject();
+      JsonObject historyUserMsg = messages.add<JsonObject>();
       historyUserMsg["role"] = "user";
       historyUserMsg["content"] = _conversationHistory[i].first;
 
       // Add assistant reply from history
-      JsonObject historyAssistantMsg = messages.createNestedObject();
+      JsonObject historyAssistantMsg = messages.add<JsonObject>();
       historyAssistantMsg["role"] = "assistant";
       historyAssistantMsg["content"] = _conversationHistory[i].second;
     }
   }
 
   // Add current user message
-  JsonObject userMsg = messages.createNestedObject();
+  JsonObject userMsg = messages.add<JsonObject>();
   userMsg["role"] = "user";
   userMsg["content"] = message;
 
@@ -646,7 +663,7 @@ String ArduinoGPTChat::_buildPayload(String message) {
  * Remove newlines to get clean text output
  */
 String ArduinoGPTChat::_processResponse(String response) {
-  DynamicJsonDocument jsonDoc(1024);
+  JsonDocument jsonDoc;
   deserializeJson(jsonDoc, response);
   String outputText = jsonDoc["choices"][0]["message"]["content"];
   // Replace newlines with spaces to preserve full response for TTS
@@ -671,7 +688,8 @@ bool ArduinoGPTChat::textToSpeech(String text) {
   String host_original = g_api_host;
   g_api_host = "api.openai.com";
 
-  String openAiKey = "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"; 
+  // Chave carregada do env.h (arquivo protegido pelo .gitignore)
+  String openAiKey = String(ENV_OPENAI_API_KEY);
 
     // 4. Faz a requisição de voz usando a chave da OpenAI e o modelo TTS deles
     bool success = audio.openai_speech(
@@ -763,7 +781,7 @@ String ArduinoGPTChat::speechToText(const char* audioFilePath) {
   String part2 = "\r\n--" + boundary + "\r\n";
   part2 += "Content-Disposition: form-data; name=model;\r\n";
   part2 += "Content-Type: text/plain\r\n\r\n";
-  part2 += "whisper-1";
+  part2 += _sttModel;
 
   // Prompt part (matching Python example)
   String part3 = "\r\n--" + boundary + "\r\n";
@@ -852,7 +870,10 @@ String ArduinoGPTChat::speechToText(const char* audioFilePath) {
   }
 
   // Send request
-  Serial.println("Sending STT request...");
+  Serial.print("Sending STT request to: ");
+  Serial.println(_sttApiUrl);
+  Serial.print("Using STT model: ");
+  Serial.println(_sttModel);
   int httpCode = http.POST(requestBody, totalLength);
 
   // Free request body memory
@@ -867,7 +888,7 @@ String ArduinoGPTChat::speechToText(const char* audioFilePath) {
     Serial.println("Got STT response: " + response);
 
     // Parse JSON response
-    DynamicJsonDocument jsonDoc(1024);
+    JsonDocument jsonDoc;
     DeserializationError error = deserializeJson(jsonDoc, response);
 
     if (!error) {
@@ -881,10 +902,15 @@ String ArduinoGPTChat::speechToText(const char* audioFilePath) {
   } else {
     Serial.print("HTTP Error: ");
     Serial.println(httpCode);
-    // Try to get error response content
-    String errorResponse = http.getString();
-    if (errorResponse.length() > 0) {
-      Serial.println("Error response: " + errorResponse);
+    
+    if (httpCode > 0) {
+      String errorResponse = http.getString();
+      if (errorResponse.length() > 0) {
+        Serial.println("Error response: " + errorResponse);
+      }
+    } else {
+      Serial.print("Connection failed: ");
+      Serial.println(http.errorToString(httpCode).c_str());
     }
     response = "";
   }
@@ -893,6 +919,158 @@ String ArduinoGPTChat::speechToText(const char* audioFilePath) {
   return response;
 }
 
+/**
+ * @brief Stream STT request via TCP sem alocar buffer grande no heap
+ * @param samples Ponteiro para as amostras de audio (int16_t PCM)
+ * @param numSamples Numero de amostras
+ * @return Texto transcrito
+ *
+ * Envia o audio diretamente via WiFiClientSecure em pedacos pequenos,
+ * evitando a alocacao de um buffer WAV completo no heap fragmentado.
+ */
+String ArduinoGPTChat::_streamSTTRequest(int16_t* samples, size_t numSamples) {
+  String response = "";
+
+  // Extrair host e path da URL (ex: https://api.groq.com/openai/v1/audio/transcriptions)
+  String host = "";
+  String path = "/";
+  if (_sttApiUrl.startsWith("https://")) {
+    String rest = _sttApiUrl.substring(8);
+    int slash = rest.indexOf('/');
+    if (slash >= 0) {
+      host = rest.substring(0, slash);
+      path = rest.substring(slash);
+    } else {
+      host = rest;
+    }
+  } else {
+    Serial.println("_streamSTTRequest: URL deve comecar com https://");
+    return response;
+  }
+
+  // Calcular tamanhos do corpo multipart (sem alocar o corpo inteiro)
+  String boundary = "wL36Yn8afVp8Ag7AmP8qZ0SA4n1v9T";
+
+  String part1  = "--" + boundary + "\r\n";
+  part1 += "Content-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\n";
+  part1 += "Content-Type: audio/wav\r\n\r\n";
+
+  String part2  = "\r\n--" + boundary + "\r\n";
+  part2 += "Content-Disposition: form-data; name=\"model\"\r\n\r\n";
+  part2 += _sttModel;
+
+  String part3  = "\r\n--" + boundary + "--\r\n";
+
+  size_t wavDataSize   = numSamples * 2;          // bytes PCM crus
+  size_t wavTotalSize  = 44 + wavDataSize;         // header WAV + PCM
+  size_t totalLength   = part1.length() + wavTotalSize + part2.length() + part3.length();
+
+  // Construir header WAV na stack (apenas 44 bytes)
+  uint8_t wavHeader[44] = {
+    'R','I','F','F', 0,0,0,0, 'W','A','V','E',
+    'f','m','t',' ', 16,0,0,0, 1,0, 1,0,
+    0,0,0,0, 0,0,0,0, 2,0, 16,0,
+    'd','a','t','a', 0,0,0,0
+  };
+  uint32_t chunkSize = (uint32_t)(wavTotalSize - 8);
+  uint32_t sr        = (uint32_t)_sampleRate;
+  uint32_t byteRate  = sr * 2;
+  uint32_t dataSize  = (uint32_t)wavDataSize;
+  memcpy(&wavHeader[4],  &chunkSize, 4);
+  memcpy(&wavHeader[24], &sr,        4);
+  memcpy(&wavHeader[28], &byteRate,  4);
+  memcpy(&wavHeader[40], &dataSize,  4);
+
+  // Conectar via TLS
+  WiFiClientSecure client;
+  client.setInsecure();
+  client.setTimeout(30000);  // 30 segundos em milissegundos
+
+  Serial.print("Conectando a ");
+  Serial.print(host);
+  Serial.println(":443 ...");
+
+  if (!client.connect(host.c_str(), 443)) {
+    Serial.println("Falha na conexao TLS!");
+    return response;
+  }
+  Serial.println("Conectado! Enviando requisicao STT em streaming...");
+
+  // Enviar cabecalhos HTTP (HTTP/1.0 evita chunked transfer encoding)
+  client.print("POST "); client.print(path); client.println(" HTTP/1.0");
+  client.print("Host: "); client.println(host);
+  client.print("Authorization: Bearer "); client.println(String(_apiKey));
+  client.print("Content-Type: multipart/form-data; boundary="); client.println(boundary);
+  client.print("Content-Length: "); client.println(String(totalLength));
+  client.println();  // fim dos headers
+
+  // Enviar parte 1 (cabecalho do campo file)
+  client.print(part1);
+
+  // Enviar header WAV (44 bytes, na stack)
+  client.write(wavHeader, 44);
+
+  // Enviar amostras PCM em chunks de 512 bytes
+  const size_t CHUNK = 512;
+  uint8_t* raw = (uint8_t*)samples;
+  for (size_t sent = 0; sent < wavDataSize; sent += CHUNK) {
+    size_t toSend = ((wavDataSize - sent) < CHUNK) ? (wavDataSize - sent) : CHUNK;
+    client.write(raw + sent, toSend);
+  }
+
+  // Enviar partes finais do multipart
+  client.print(part2);
+  client.print(part3);
+
+  Serial.println("Audio enviado! Aguardando resposta...");
+
+  // Ler resposta HTTP com timeout de 30 segundos
+  unsigned long deadline = millis() + 30000UL;
+
+  // Pular headers HTTP (termina com linha em branco "\r\n")
+  while (client.connected() && millis() < deadline) {
+    String line = client.readStringUntil('\n');
+    if (line == "\r" || line.length() == 0) break;
+  }
+
+  // Ler corpo da resposta
+  String body = "";
+  while ((client.connected() || client.available()) && millis() < deadline) {
+    if (client.available()) {
+      body += (char)client.read();
+    }
+  }
+  client.stop();
+
+  // Extrair apenas o objeto JSON do corpo (ignora headers e chunk sizes)
+  int jsonStart = body.indexOf('{');
+  int jsonEnd   = body.lastIndexOf('}');
+  if (jsonStart >= 0 && jsonEnd > jsonStart) {
+    body = body.substring(jsonStart, jsonEnd + 1);
+  }
+
+  Serial.print("JSON extraido: ");
+  Serial.println(body);
+
+  // Parsear JSON
+  JsonDocument jsonDoc;
+  DeserializationError err = deserializeJson(jsonDoc, body);
+  if (!err) {
+    response = jsonDoc["text"].as<String>();
+    if (response.length() == 0) {
+      String errMsg = jsonDoc["error"]["message"].as<String>();
+      if (errMsg.length() > 0) {
+        Serial.println("Erro da API: " + errMsg);
+      }
+    }
+  } else {
+    Serial.print("Erro ao parsear JSON: ");
+    Serial.println(err.c_str());
+    Serial.println("Body raw: " + body);
+  }
+
+  return response;
+}
 // Recording control functions implementation
 /**
  * @brief Initialize recording configuration
@@ -929,20 +1107,61 @@ void ArduinoGPTChat::initializeRecording(int micClkPin, int micWsPin, int micDat
  */
 bool ArduinoGPTChat::startRecording() {
   if (_isRecording) {
-    return false; // Already recording
+    return false;
   }
 
   Serial.println("Starting recording...");
 
-  // Clear audio buffer
-  _audioBuffer.clear();
+  // Liberar buffer anterior, se existir
+  if (_audioBuffer != nullptr) {
+    free(_audioBuffer);
+    _audioBuffer = nullptr;
+  }
+  _audioSize     = 0;
+  _audioCapacity = 0;
 
-  // Set microphone I2S pins
+  // Calcular capacidade maxima segura:
+  // - Se PSRAM disponivel: usa ps_malloc com limite de 4 segundos
+  // - Se RAM normal: usa 60% do maior bloco livre, com limite de 4 segundos
+  size_t maxSamples = (size_t)_sampleRate * _MAX_RECORD_SECONDS;
+
+  if (psramFound()) {
+    _audioBuffer = (int16_t*)ps_malloc(maxSamples * sizeof(int16_t));
+    if (_audioBuffer) {
+      _audioCapacity = maxSamples;
+      Serial.print("Buffer PSRAM: ");
+    }
+  }
+
+  if (_audioBuffer == nullptr) {
+    // Sem PSRAM: usa 60% do maior bloco livre para deixar margem
+    size_t maxBytes  = (size_t)(ESP.getMaxAllocHeap() * 0.75f);
+    size_t safeSamples = maxBytes / sizeof(int16_t);
+    safeSamples = (safeSamples < maxSamples) ? safeSamples : maxSamples;
+    _audioBuffer = (int16_t*)malloc(safeSamples * sizeof(int16_t));
+    if (_audioBuffer) {
+      _audioCapacity = safeSamples;
+      Serial.print("Buffer RAM: ");
+    }
+  }
+
+  if (_audioBuffer == nullptr) {
+    Serial.println("ERRO: Falha ao alocar buffer de audio!");
+    return false;
+  }
+
+  Serial.print(_audioCapacity * sizeof(int16_t) / 1024);
+  Serial.print(" KB para ");
+  Serial.print(_audioCapacity / _sampleRate);
+  Serial.println(" seg max");
+
+  // Configurar e iniciar I2S
   _recordingI2S.setPins(_micClkPin, _micWsPin, -1, _micDataPin);
-
-  // Initialize I2S recording using stored configuration
   if (!_recordingI2S.begin(_i2sMode, _sampleRate, _i2sBitWidth, _i2sSlotMode, _i2sSlotMask)) {
     Serial.println("Failed to initialize I2S!");
+    free(_audioBuffer);
+    _audioBuffer   = nullptr;
+    _audioCapacity = 0;
     return false;
   }
 
@@ -957,20 +1176,24 @@ bool ArduinoGPTChat::startRecording() {
  * Should be called in loop to continue recording
  */
 void ArduinoGPTChat::continueRecording() {
-  if (!_isRecording) return;
+  if (!_isRecording || _audioBuffer == nullptr) return;
 
-  int16_t samples[_bufferSize];
+  // Parar se buffer cheio
+  if (_audioSize >= _audioCapacity) return;
 
-  // Read audio samples
-  size_t bytesRead = _recordingI2S.readBytes((char*)samples, _bufferSize * sizeof(int16_t));
+  int16_t chunk[_bufferSize];
+  size_t bytesRead = _recordingI2S.readBytes((char*)chunk, _bufferSize * sizeof(int16_t));
 
   if (bytesRead > 0) {
-    // Add samples to buffer
     size_t samplesRead = bytesRead / sizeof(int16_t);
-    for (size_t i = 0; i < samplesRead; i++) {
-      _audioBuffer.push_back(samples[i]);
-    }
+    // Copiar sem exceder capacidade
+    size_t space = _audioCapacity - _audioSize;
+    size_t toCopy = (samplesRead < space) ? samplesRead : space;
+    memcpy(_audioBuffer + _audioSize, chunk, toCopy * sizeof(int16_t));
+    _audioSize += toCopy;
   }
+
+  yield(); // Evitar watchdog durante gravacao longa
 }
 
 /**
@@ -981,36 +1204,32 @@ void ArduinoGPTChat::continueRecording() {
  * then process audio using speech-to-text function
  */
 String ArduinoGPTChat::stopRecordingAndProcess() {
-  if (!_isRecording) {
-    return "";
-  }
+  if (!_isRecording) return "";
 
-  // Stop I2S
   _recordingI2S.end();
   _isRecording = false;
 
-  if (_audioBuffer.empty()) {
+  if (_audioBuffer == nullptr || _audioSize == 0) {
     Serial.println("No audio data recorded!");
+    if (_audioBuffer) { free(_audioBuffer); _audioBuffer = nullptr; }
+    _audioCapacity = 0; _audioSize = 0;
     return "";
   }
 
-  Serial.println("Recording completed, samples: " + String(_audioBuffer.size()));
+  Serial.println("Recording completed, samples: " + String(_audioSize));
   Serial.println("Converting speech to text...");
+  Serial.print("Heap livre: "); Serial.print(ESP.getFreeHeap());
+  Serial.print(" bytes, Max bloco: "); Serial.print(ESP.getMaxAllocHeap());
+  Serial.println(" bytes");
 
-  // Convert audio buffer to WAV format
-  uint8_t* wavBuffer = createWAVBuffer(_audioBuffer.data(), _audioBuffer.size());
-  size_t wavSize = calculateWAVSize(_audioBuffer.size());
+  // Streaming direto: sem alocar buffer WAV separado
+  String transcribedText = _streamSTTRequest(_audioBuffer, _audioSize);
 
-  if (wavBuffer == nullptr) {
-    Serial.println("Failed to create WAV buffer!");
-    return "";
-  }
-
-  // Convert speech to text
-  String transcribedText = speechToTextFromBuffer(wavBuffer, wavSize);
-
-  // Free buffer memory
-  free(wavBuffer);
+  // Liberar buffer de audio apos uso
+  free(_audioBuffer);
+  _audioBuffer   = nullptr;
+  _audioCapacity = 0;
+  _audioSize     = 0;
 
   return transcribedText;
 }
@@ -1028,7 +1247,7 @@ bool ArduinoGPTChat::isRecording() {
  * @return Number of audio samples
  */
 size_t ArduinoGPTChat::getRecordedSampleCount() {
-  return _audioBuffer.size();
+  return _audioSize;
 }
 
 // WAV file handling functions
@@ -1043,7 +1262,13 @@ size_t ArduinoGPTChat::getRecordedSampleCount() {
  */
 uint8_t* ArduinoGPTChat::createWAVBuffer(int16_t* samples, size_t numSamples) {
   size_t wavSize = calculateWAVSize(numSamples);
-  uint8_t* wavBuffer = (uint8_t*)malloc(wavSize);
+  
+  uint8_t* wavBuffer = nullptr;
+  if (psramFound()) {
+    wavBuffer = (uint8_t*)ps_malloc(wavSize);
+  } else {
+    wavBuffer = (uint8_t*)malloc(wavSize);
+  }
 
   if (wavBuffer == nullptr) {
     return nullptr;
@@ -1129,16 +1354,34 @@ String ArduinoGPTChat::speechToTextFromBuffer(uint8_t* audioBuffer, size_t buffe
   }
   
   Serial.println("Audio buffer size: " + String(bufferSize) + " bytes");
-  
+
+  // Diagnóstico: verificar se o áudio não é silêncio puro
+  if (bufferSize > 44) {
+    int16_t* samples = (int16_t*)(audioBuffer + 44); // Pular header WAV (44 bytes)
+    size_t numSamples = (bufferSize - 44) / 2;
+    size_t checkCount = min(numSamples, (size_t)500);
+    int32_t sumAbs = 0;
+    int16_t maxVal = 0;
+    for (size_t i = 0; i < checkCount; i++) {
+      int16_t s = samples[i] < 0 ? -samples[i] : samples[i];
+      sumAbs += s;
+      if (s > maxVal) maxVal = s;
+    }
+    int16_t avgLevel = (checkCount > 0) ? (sumAbs / checkCount) : 0;
+    Serial.print("Audio level - max: ");
+    Serial.print(maxVal);
+    Serial.print(", avg: ");
+    Serial.println(avgLevel);
+    if (maxVal < 50) {
+      Serial.println("AVISO: Audio parece silencio puro! Verifique conexoes do microfone.");
+    }
+  }
+
   String boundary = "wL36Yn8afVp8Ag7AmP8qZ0SA4n1v9T";
 
-  WiFiClientSecure client;
-  client.setInsecure(); 
-  client.setTimeout(20000); 
-  
   HTTPClient http;
-  http.begin(client, "https://api.openai.com/v1/audio/transcriptions");
-  http.setTimeout(20000); 
+  http.begin(_sttApiUrl);
+  http.setTimeout(30000);
 
   String part1 = "--" + boundary + "\r\n";
   part1 += "Content-Disposition: form-data; name=file; filename=audio.wav\r\n";
@@ -1147,7 +1390,7 @@ String ArduinoGPTChat::speechToTextFromBuffer(uint8_t* audioBuffer, size_t buffe
   String part2 = "\r\n--" + boundary + "\r\n";
   part2 += "Content-Disposition: form-data; name=model;\r\n";
   part2 += "Content-Type: text/plain\r\n\r\n";
-  part2 += "whisper-1";
+  part2 += _sttModel;
 
   String part3 = "\r\n--" + boundary + "\r\n";
   part3 += "Content-Disposition: form-data; name=prompt;\r\n";
@@ -1180,9 +1423,18 @@ String ArduinoGPTChat::speechToTextFromBuffer(uint8_t* audioBuffer, size_t buffe
   http.addHeader("Content-Length", String(totalLength));
 
   Serial.println("Preparing request body...");
-  uint8_t* requestBody = (uint8_t*)malloc(totalLength);
+  Serial.flush();
+  
+  uint8_t* requestBody = nullptr;
+  if (psramFound()) {
+    requestBody = (uint8_t*)ps_malloc(totalLength);
+  } else {
+    requestBody = (uint8_t*)malloc(totalLength);
+  }
+  
   if (!requestBody) {
     Serial.println("Failed to allocate memory for request body!");
+    Serial.flush();
     return response;
   }
 
@@ -1204,7 +1456,11 @@ String ArduinoGPTChat::speechToTextFromBuffer(uint8_t* audioBuffer, size_t buffe
   memcpy(requestBody + pos, part7.c_str(), part7.length());
   pos += part7.length();
 
-  Serial.println("Sending STT request...");
+  Serial.print("Sending STT request to: ");
+  Serial.println(_sttApiUrl);
+  Serial.print("Using STT model: ");
+  Serial.println(_sttModel);
+  Serial.flush();
   int httpCode = http.POST(requestBody, totalLength);
 
   free(requestBody);
@@ -1214,7 +1470,7 @@ String ArduinoGPTChat::speechToTextFromBuffer(uint8_t* audioBuffer, size_t buffe
   
   if (httpCode == 200) {
     response = http.getString();
-    DynamicJsonDocument jsonDoc(1024);
+    JsonDocument jsonDoc;
     DeserializationError error = deserializeJson(jsonDoc, response);
 
     if (!error) {
@@ -1225,6 +1481,16 @@ String ArduinoGPTChat::speechToTextFromBuffer(uint8_t* audioBuffer, size_t buffe
   } else {
     Serial.print("HTTP Error: ");
     Serial.println(httpCode);
+    
+    if (httpCode > 0) {
+      String errorResponse = http.getString();
+      if (errorResponse.length() > 0) {
+        Serial.println("Error response: " + errorResponse);
+      }
+    } else {
+      Serial.print("Connection failed: ");
+      Serial.println(http.errorToString(httpCode).c_str());
+    }
     
     Serial.print("Memória RAM livre no momento do erro: ");
     Serial.print(ESP.getFreeHeap());
