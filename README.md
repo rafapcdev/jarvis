@@ -4,6 +4,12 @@
 
 # 🤖 JARVIS — Assistente de Voz com IA Local
 
+
+
+https://github.com/user-attachments/assets/d65cb0a1-0698-4393-b2f3-e8e57598c8fc
+
+
+
 [![Arduino](https://img.shields.io/badge/Arduino-ESP32-blue.svg)](https://github.com/arduino/arduino-esp32)
 [![Branch](https://img.shields.io/badge/Branch-GROCK--IA--1.0V-orange.svg)](https://github.com/rafapcdev/jarvis/tree/GROCK-IA-1.0V)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
